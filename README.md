@@ -39,21 +39,21 @@ move, and a re-initialisation caused by a re-render that changed nothing.
 
 ## Attributes
 
-| attribute        | notes                                                         |
-| ---------------- | ------------------------------------------------------------- |
-| `public-id`      | **Required.** The web channel's public ID.                    |
-| `api-url`        | Defaults to the host the loader was served from.              |
-| `realtime-url`   | Rarely needed; the API reports the right one.                 |
-| `loader-url`     | Where `loader.js` is served from. Rarely set; see below.      |
-| `locale`         | Applied with `setLocale()` once the widget is up.             |
-| `css-overrides`  | CSS injected into the widget's shadow root.                   |
-| `inline`         | Boolean. Mount the chat inside this element.                  |
-| `theme`          | JSON.                                                         |
-| `behavior`       | JSON.                                                         |
-| `visitor`        | JSON.                                                         |
-| `copy`           | JSON.                                                         |
-| `copy-by-locale` | JSON.                                                         |
-| `quick-links`    | JSON.                                                         |
+| attribute        | notes                                                    |
+| ---------------- | -------------------------------------------------------- |
+| `public-id`      | **Required.** The web channel's public ID.               |
+| `api-url`        | Defaults to the host the loader was served from.         |
+| `realtime-url`   | Rarely needed; the API reports the right one.            |
+| `loader-url`     | Where `loader.js` is served from. Rarely set; see below. |
+| `locale`         | Applied with `setLocale()` once the widget is up.        |
+| `css-overrides`  | CSS injected into the widget's shadow root.              |
+| `inline`         | Boolean. Mount the chat inside this element.             |
+| `theme`          | JSON.                                                    |
+| `behavior`       | JSON.                                                    |
+| `visitor`        | JSON.                                                    |
+| `copy`           | JSON.                                                    |
+| `copy-by-locale` | JSON.                                                    |
+| `quick-links`    | JSON.                                                    |
 
 Attributes are live: change one and the element applies it. A changed
 `visitor` becomes an `identify()` and a changed `locale` a `setLocale()` —
