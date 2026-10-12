@@ -49,7 +49,7 @@ import type {
   ChatlySession,
 } from './types.js';
 
-/** Chatly Cloud. A self-hosted deployment MUST override this — see the type. */
+/** Where we serve the loader. Override only to serve it yourself — see the type. */
 export const DEFAULT_LOADER_URL = 'https://widget.chatlychat.com/loader.js';
 
 /**

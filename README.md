@@ -44,7 +44,7 @@ move, and a re-initialisation caused by a re-render that changed nothing.
 | `public-id`      | **Required.** The web channel's public ID.                    |
 | `api-url`        | Defaults to the host the loader was served from.              |
 | `realtime-url`   | Rarely needed; the API reports the right one.                 |
-| `loader-url`     | Where `loader.js` is served from. **Self-hosting: set this.** |
+| `loader-url`     | Where `loader.js` is served from. Rarely set; see below.      |
 | `locale`         | Applied with `setLocale()` once the widget is up.             |
 | `css-overrides`  | CSS injected into the widget's shadow root.                   |
 | `inline`         | Boolean. Mount the chat inside this element.                  |
@@ -168,13 +168,20 @@ loader — it queues its `init` onto the shim the snippet installed and lets tha
 loader replay it. The element's configuration wins. You do not need both, but
 having both is not broken.
 
-## Self-hosting
+## Serving the loader yourself
 
-Set `loader-url`. `GET /v1/channels/:id` returns the right value for your
-deployment as `embed.loaderUrl`; read it from there rather than typing a host.
-The same response lists every origin a running widget connects to
-(`connectOrigins`) — there are three, and a CSP built from the script host
-alone lets the launcher paint and then blocks every request it makes.
+`loader-url` defaults to `https://widget.chatlychat.com/loader.js`, which is
+the right answer for almost everyone. Set it if you serve `loader.js` off your
+own CDN, or to aim the element at another Chatly environment —
+`GET /v1/channels/:id` returns the right value for the deployment you asked as
+`embed.loaderUrl`, so read it from there rather than typing a host. The loader
+resolves the bundle from its own URL, so a copy you serve needs `widget.js` and
+the chunks it fetches sitting beside it.
+
+The same response lists every origin a running widget connects to —
+`connectOrigins`: the API host, and the realtime host under both `https:` and
+`wss:` — and a CSP built from the script host alone lets the launcher paint and
+then blocks every request it makes.
 
 ## License
 

@@ -248,10 +248,12 @@ export interface ChatlyEmbedOptions extends ChatlyInitOptions {
   /**
    * The loader script URL.
    *
-   * Defaults to Chatly Cloud's. A SELF-HOSTED deployment must set it: the
-   * default points a visitor's browser at our CDN, which for a self-hoster is
-   * both wrong and the kind of wrong that still renders a working chat bubble
-   * (talking to the wrong API) rather than failing loudly.
+   * Defaults to `https://widget.chatlychat.com/loader.js`, which is where we
+   * serve it. Set it only if you serve `loader.js` from your own CDN — and if
+   * you do, `widget.js` and its chunks must sit beside your copy, because the
+   * loader resolves them from its own URL. Point it at a loader that is not
+   * beside its bundle and you get a chat bubble that renders and then cannot
+   * load its engine, rather than a clean failure.
    *
    * `GET /v1/channels/:id` returns the right value for your deployment as
    * `embed.loaderUrl`. Use that rather than typing a host.
