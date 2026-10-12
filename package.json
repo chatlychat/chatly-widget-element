@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "The Chatly chat widget as a custom element (<chatly-widget>), plus the embed lifecycle framework wrappers share. Zero dependencies.",
   "license": "MIT",
-  "homepage": "https://chatlychat.com/docs",
+  "homepage": "https://github.com/chatlychat/chatly-widget-element#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/chatlychat/chatly-widget-element.git"
@@ -13,14 +13,13 @@
   },
   "keywords": [
     "chatly",
-    "livechat",
     "chat",
     "widget",
     "custom-element",
     "web-component",
     "support"
   ],
-  "author": "LiveChat Platform Engineering",
+  "author": "Chatly",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
