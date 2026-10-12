@@ -1,0 +1,195 @@
+# @chatlychat/widget-element
+
+The Chatly chat widget as a custom element. **Zero dependencies.**
+
+```bash
+pnpm add @chatlychat/widget-element
+```
+
+```html
+<script type="module">
+  import '@chatlychat/widget-element/register';
+</script>
+
+<chatly-widget public-id="acme-web" api-url="https://api.chatlychat.com"></chatly-widget>
+```
+
+Works in Vue, Svelte, Angular, Lit, Astro, Alpine, htmx and plain HTML —
+anywhere a custom element works. For React, use
+[`@chatlychat/widget-react`](../widget-react), which is built on this package's
+lifecycle.
+
+## Why not just paste the snippet?
+
+If a `<script>` in your `<head>` is all you need, paste
+[the snippet](https://chatlychat.com/docs/channel-web) and stop reading. This
+package earns its keep when the widget's lifetime is tied to something your
+framework owns:
+
+- the chat should appear on some routes and not others, and your router
+  unmounts the element;
+- the theme or the visitor's identity comes from component state;
+- your templates bind properties and listen for events, and you would rather
+  write `<chatly-widget :theme="theme" @chatly-ready="…">` than reach into
+  `window`.
+
+It also handles three things a hand-written integration usually does not: a
+widget left behind when its component unmounts, a re-boot caused by a DOM
+move, and a re-initialisation caused by a re-render that changed nothing.
+
+## Attributes
+
+| attribute        | notes                                                         |
+| ---------------- | ------------------------------------------------------------- |
+| `public-id`      | **Required.** The web channel's public ID.                    |
+| `api-url`        | Defaults to the host the loader was served from.              |
+| `realtime-url`   | Rarely needed; the API reports the right one.                 |
+| `loader-url`     | Where `loader.js` is served from. **Self-hosting: set this.** |
+| `locale`         | Applied with `setLocale()` once the widget is up.             |
+| `css-overrides`  | CSS injected into the widget's shadow root.                   |
+| `inline`         | Boolean. Mount the chat inside this element.                  |
+| `theme`          | JSON.                                                         |
+| `behavior`       | JSON.                                                         |
+| `visitor`        | JSON.                                                         |
+| `copy`           | JSON.                                                         |
+| `copy-by-locale` | JSON.                                                         |
+| `quick-links`    | JSON.                                                         |
+
+Attributes are live: change one and the element applies it. A changed
+`visitor` becomes an `identify()` and a changed `locale` a `setLocale()` —
+neither re-mounts the widget. A change to anything else re-initialises it,
+which closes an open panel (the widget has no `setTheme`; this is the honest
+cost, and it only happens when a value really changed).
+
+### A malformed JSON attribute does not stop the chat
+
+It is dropped, `console.error` says which attribute and why, and the widget
+starts without it.
+
+That is the opposite of what the widget does with a `mountTo` selector that
+matches nothing, and deliberately so: a failed `mountTo` would put an
+unexpected floating bubble on a page built to embed the chat, which reads as a
+bug and is easy to miss, whereas a failed `theme` leaves a working chat in the
+default colours and a named error in the console. Losing support chat on your
+site over a trailing comma is the worse trade.
+
+## Properties
+
+Every JSON attribute is also a property, and the property wins:
+
+```js
+const chat = document.querySelector('chatly-widget');
+chat.theme = { primaryColor: '#4f46e5', colorScheme: 'auto' };
+chat.visitor = { externalId: 'u_42', email: 'jamie@acme.io', userHash };
+chat.config = { behavior: { tabs: ['home', 'messages'] } }; // the whole object
+```
+
+Setting a property **before** the element is defined or upgraded works too,
+which matters because every property-binding template engine can produce that
+ordering.
+
+`chat.controls` is the widget's post-boot method object — `open`, `close`,
+`toggle`, `identify`, `setUser`, `setCustomAttributes`,
+`deleteCustomAttribute`, `setLabel`, `removeLabel`, `setLocale`, `track`,
+`registerPushToken`, `reset` — so a reference to the element is enough to
+drive the chat. It is also exported on its own as `controls`.
+
+`init` and `destroy` are deliberately absent: the element owns the lifecycle,
+and calling them behind its back leaves it believing a widget is mounted that
+is not.
+
+## Events
+
+The element re-dispatches every widget event as a DOM `CustomEvent`, with the
+widget's payload on `detail`. They bubble and are `composed`, so a listener on
+an ancestor hears them.
+
+`chatly-ready`, `chatly-open`, `chatly-close`, `chatly-message`,
+`chatly-conversation`, `chatly-identified`, `chatly-reset`, `chatly-action`,
+`chatly-error`.
+
+```html
+<chatly-widget public-id="acme-web"></chatly-widget>
+<script type="module">
+  import '@chatlychat/widget-element/register';
+  document.querySelector('chatly-widget').addEventListener('chatly-message', (e) => {
+    console.log('reply from', e.detail.authorType);
+  });
+</script>
+```
+
+Hyphenated, not `chatly:message`: a colon is legal in an event name but not in
+a Vue, Angular or Svelte template binding.
+
+## Inline mounting
+
+```html
+<chatly-widget public-id="acme-web" inline style="height: 600px"></chatly-widget>
+```
+
+The chat fills the element instead of floating. No launcher, no corner offset,
+and `close()` warns instead of working — hide or remove the element instead.
+
+The element sets `display: block` on itself in this mode, because a custom
+element is `display: inline` by default, which collapses to a zero-height box
+and looks exactly like the widget failing to load. It also sets a 420px
+`min-height` unless you set one.
+
+## The main entry has no side effects
+
+Importing `@chatlychat/widget-element` defines nothing and touches no DOM.
+`@chatlychat/widget-element/register` is the opt-in that defines
+`<chatly-widget>`, and `defineChatlyWidget('my-tag')` is there if you need a
+different tag name. Calling either twice is safe.
+
+This split is why `@chatlychat/widget-react` can depend on this package for the
+embed lifecycle without registering an element its consumers never asked for,
+and why nothing here crashes a server-side bundle — a top-level
+`class X extends HTMLElement` would throw `HTMLElement is not defined` the
+moment a Next.js server component imported so much as a type from here.
+
+## One widget per page
+
+`window.Chatly` is a singleton. Two connected `<chatly-widget>` elements with
+different attributes is a misconfiguration: the first owns the configuration,
+the second's attributes are ignored (its events still fire), and a console
+warning says so. Two with the same configuration is harmless — which is what
+makes an element inside a template that re-renders safe.
+
+Moving the element in the DOM, or removing and re-adding it in the same task,
+does **not** re-boot the widget. A `disconnectedCallback` is not necessarily
+an unmount: `appendChild` elsewhere fires disconnect then connect, and so does
+a framework re-keying a list.
+
+## Composing with the snippet
+
+If the page already has the snippet, this package does not fetch a second
+loader — it queues its `init` onto the shim the snippet installed and lets that
+loader replay it. The element's configuration wins. You do not need both, but
+having both is not broken.
+
+## Self-hosting
+
+Set `loader-url`. `GET /v1/channels/:id` returns the right value for your
+deployment as `embed.loaderUrl`; read it from there rather than typing a host.
+The same response lists every origin a running widget connects to
+(`connectOrigins`) — there are three, and a CSP built from the script host
+alone lets the launcher paint and then blocks every request it makes.
+
+## License
+
+MIT — see `LICENSE`.
+
+---
+
+## About this repository
+
+This is a **mirror**. `@chatlychat/widget-element` is built from a private monorepo where the rest
+of the platform, its migrations and its contract checks live, so a pull request here
+cannot be merged directly — but a patch is still the fastest way to get something
+fixed and we will port it with attribution.
+
+What you can do here: read the source, run the tests (`npm install && npm test`),
+open an issue, or open a PR and we will treat the diff as the proposal.
+
+Issues: https://github.com/chatlychat/chatly-widget-element/issues · Docs: https://chatlychat.com/docs
