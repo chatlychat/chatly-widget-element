@@ -23,6 +23,14 @@ export {
   type ChatlyEmbedHandle,
 } from './embed.js';
 /**
+ * Start the bundle download without opening anything.
+ *
+ * Separate from `controls` on purpose: `controls` mirrors the methods
+ * `window.Chatly` really has, and `load` is the LOADER's verb, not the
+ * widget's. See the docblock in `lazy.ts`.
+ */
+export { prefetchWidget } from './lazy.js';
+/**
  * Test-only. Resets the module's mount state between tests and reports what
  * it believes is mounted.
  *
@@ -49,6 +57,7 @@ export type {
   ChatlyEventName,
   ChatlyIdentity,
   ChatlyInitOptions,
+  ChatlyLazyMode,
   ChatlyMessageEvent,
   ChatlyQuickLink,
   ChatlyQuip,

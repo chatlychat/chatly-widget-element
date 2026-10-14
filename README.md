@@ -45,6 +45,7 @@ move, and a re-initialisation caused by a re-render that changed nothing.
 | `api-url`        | Defaults to the host the loader was served from.         |
 | `realtime-url`   | Rarely needed; the API reports the right one.            |
 | `loader-url`     | Where `loader.js` is served from. Rarely set; see below. |
+| `lazy`           | Defer the bundle until a visitor wants it; see below.    |
 | `locale`         | Applied with `setLocale()` once the widget is up.        |
 | `css-overrides`  | CSS injected into the widget's shadow root.              |
 | `inline`         | Boolean. Mount the chat inside this element.             |
@@ -60,6 +61,41 @@ Attributes are live: change one and the element applies it. A changed
 neither re-mounts the widget. A change to anything else re-initialises it,
 which closes an open panel (the widget has no `setTheme`; this is the honest
 cost, and it only happens when a value really changed).
+
+### `lazy` — deferring the bundle
+
+`widget.js` is ~44KB gzipped and every visitor downloads it on every page
+view, whether or not they ever open the chat. `lazy` changes that:
+
+```html
+<!-- a valueless attribute means "on", as everywhere else in HTML -->
+<chatly-widget public-id="acme-web" lazy></chatly-widget>
+<chatly-widget public-id="acme-web" lazy="interaction"></chatly-widget>
+<chatly-widget public-id="acme-web" lazy="manual"></chatly-widget>
+```
+
+| value                | what happens                                                                                               |
+| -------------------- | ---------------------------------------------------------------------------------------------------------- |
+| absent / `false`     | the bundle is fetched on page load, as it always has been                                                  |
+| present / `launcher` | the loader paints a stand-in launcher matching your theme; using it fetches the bundle and opens the panel |
+| `interaction`        | as above, plus a pre-warm on the visitor's first interaction with the page                                 |
+| `manual`             | nothing is painted or fetched until something calls `Chatly('load')`                                       |
+
+The stand-in launcher is drawn by `loader.js`, which is already on the page
+and ~2KB. It is a real `<button>` in a shadow root, so it is keyboard
+reachable and your page's CSS cannot reshape it, and its click rides the same
+queue the snippet has always used — so the panel opens as soon as the bundle
+replays it. A visitor is never left with no way to start a chat.
+
+Two costs worth knowing. A `track()` call made in lazy mode waits in the
+queue until something loads the bundle, so a visitor who leaves the page first
+loses the event. And `lazy` is read ONCE, when `loader.js` evaluates:
+changing the attribute afterwards warns rather than taking effect.
+
+With `inline` there is no launcher to stand in for, so the trigger is the
+element approaching the viewport instead. `prefers-reduced-data` and the
+browser's data saver suppress the `interaction` pre-warm; neither ever turns
+lazy mode on by itself.
 
 ### A malformed JSON attribute does not stop the chat
 

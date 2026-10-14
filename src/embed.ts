@@ -37,6 +37,8 @@
  * the next mount does nothing. Mount with a wrapper or mount with the snippet;
  * not both.
  */
+import { resetConflictWarning, warnOnConflict } from './conflict-warning.js';
+import { warnLateBootOption } from './lazy.js';
 import { sameOptions, sameValue } from './same-value.js';
 
 import type {
@@ -45,6 +47,7 @@ import type {
   ChatlyEventName,
   ChatlyIdentity,
   ChatlyInitOptions,
+  ChatlyLazyMode,
   ChatlyMessageEvent,
   ChatlySession,
 } from './types.js';
@@ -67,6 +70,13 @@ interface ChatlyGlobalShim {
   publicId?: string;
   apiUrl?: string;
   bundleUrl?: string;
+  /**
+   * Read by `loader.js` at script-evaluation time, not passed to `init`. A
+   * shim PROPERTY rather than an init option for the same reason `publicId`
+   * is one: the loader decides whether to fetch the bundle before it can call
+   * anything on it, so the answer has to be sitting on the global already.
+   */
+  lazy?: ChatlyLazyMode;
   /** Present only once the bundle has loaded. Used as "is it up yet". */
   init?: (opts: ChatlyInitOptions) => void;
 }
@@ -97,6 +107,8 @@ interface MountState {
   active: ChatlyEmbedOptions;
   /** The loader URL used, so a later claim asking for a different one warns. */
   loaderUrl: string;
+  /** Likewise: read once by loader.js, so a later change can only warn. */
+  lazy: ChatlyLazyMode | undefined;
   /** Pending deferred teardown, cancelled by a remount. See `release`. */
   teardown: ReturnType<typeof setTimeout> | null;
 }
@@ -161,7 +173,7 @@ export function startWidget(
       clearTimeout(state.teardown);
       state.teardown = null;
     }
-    warnOnConflict(state, options);
+    warnOnConflict(state, options, initOptionsFor);
     state.claims.set(claim, { options, handlers });
     reconcile();
     return handle;
@@ -171,6 +183,7 @@ export function startWidget(
     claims: new Map([[claim, { options, handlers }]]),
     active: options,
     loaderUrl: options.loaderUrl ?? DEFAULT_LOADER_URL,
+    lazy: options.lazy,
     teardown: null,
   };
   boot(state);
@@ -178,33 +191,6 @@ export function startWidget(
 }
 
 /** Warned once per page: two mounted widgets asking for different things. */
-let warnedConflict = false;
-
-/**
- * A second claim with different options.
- *
- * There is one `window.Chatly`, so the second set cannot be honoured — the
- * first mount's configuration stays in force and the second component's
- * handlers still fire. Silence here would be the worst outcome: a developer
- * who renders `<ChatlyWidget>` in two layouts sees one of their two themes
- * applied, at random, with nothing to search for.
- */
-function warnOnConflict(mount: MountState, options: ChatlyEmbedOptions): void {
-  if (warnedConflict) {
-    return;
-  }
-  const owner = mount.claims.values().next().value;
-  if (owner === undefined || sameOptions(initOptionsFor(owner.options), initOptionsFor(options))) {
-    return;
-  }
-  warnedConflict = true;
-  console.warn(
-    '[Chatly] a second widget was mounted with different options. There is only one ' +
-      'widget per page, so the FIRST mount owns the configuration — the second one is ' +
-      'ignored (its event handlers still fire). Render one <ChatlyWidget>, high in the ' +
-      'tree, and use useChatly() elsewhere.',
-  );
-}
 
 /** Install the shim, subscribe, queue the init, and fetch the loader. */
 function boot(mount: MountState): void {
@@ -237,6 +223,16 @@ function boot(mount: MountState): void {
   if (mount.active.apiUrl !== undefined) {
     shim.apiUrl = mount.active.apiUrl;
   }
+  /*
+   * Set BEFORE `injectLoader` below — that ordering IS the feature. The
+   * loader reads `lazy` as its own script evaluates, so a write that lands
+   * afterwards never happens, silently. The `init` queued just below carries
+   * the theme the loader paints its placeholder launcher from, for the same
+   * reason.
+   */
+  if (mount.active.lazy !== undefined) {
+    shim.lazy = mount.active.lazy;
+  }
 
   // Subscribe BEFORE init so nothing emitted during boot is missed. `ready`
   // would survive a late subscription (the widget replays the last one) but
@@ -258,10 +254,12 @@ function boot(mount: MountState): void {
 
 /** The options the widget's own `init` gets — ours, minus our own extras. */
 function initOptionsFor(options: ChatlyEmbedOptions): ChatlyInitOptions {
-  // `loaderUrl` and `locale` are this package's, not the widget's. Passing
-  // them through would be harmless today and a collision the day the widget
-  // adds a key of the same name, so they are stripped rather than ignored.
-  const { loaderUrl: _loaderUrl, locale: _locale, ...init } = options;
+  // `loaderUrl`, `lazy` and `locale` are this package's, not the widget's.
+  // Passing them through would be harmless today and a collision the day the
+  // widget adds a key of the same name, so they are stripped rather than
+  // ignored. `lazy` would also be the worst of the three to leak: the widget
+  // ignores unknown options, so it would look like a setting that works.
+  const { loaderUrl: _loaderUrl, lazy: _lazy, locale: _locale, ...init } = options;
   return init;
 }
 
@@ -349,20 +347,22 @@ function reconcile(): void {
   const next = owner.options;
   const active = state.active;
 
+  /*
+   * The two options `loader.js` reads once and can never re-read.
+   *
+   * For `loaderUrl` the bundle is already fetched and `window.Chatly` already
+   * installed, so pointing the running widget at another deployment would
+   * need a page reload. For `lazy` the question — fetch now or later — was
+   * answered before the wrapper got a second chance to ask. Both are refused
+   * LOUDLY rather than applied halfway; see `warnLateBootOption`.
+   */
   const wantedLoader = next.loaderUrl ?? DEFAULT_LOADER_URL;
   if (wantedLoader !== state.loaderUrl) {
-    /*
-     * The bundle is already fetched and `window.Chatly` already installed, so
-     * there is no honest way to honour this: pointing the running widget at
-     * another deployment would need a page reload. Refused loudly rather than
-     * applied halfway — the alternative is a widget talking to the host it was
-     * loaded from while the props say otherwise.
-     */
-    console.warn(
-      `[Chatly] loaderUrl changed from ${state.loaderUrl} to ${wantedLoader} after the ` +
-        'widget loaded. A different deployment needs a page reload; the running widget ' +
-        'is unchanged.',
-    );
+    warnLateBootOption('loaderUrl', state.loaderUrl, wantedLoader);
+  }
+  if (next.lazy !== state.lazy) {
+    warnLateBootOption('lazy', state.lazy, next.lazy);
+    state.lazy = next.lazy;
   }
 
   const initChanged = !sameOptions(initOptionsFor(active), initOptionsFor(next), ['visitor']);
@@ -531,6 +531,14 @@ export const controls = {
   ): void => dispatch('registerPushToken', platform, token, appVersion),
   reset: (): void => dispatch('reset'),
   /**
+   * Grant or withhold consent to use the visitor's browser storage.
+   *
+   * The call a consent banner makes. Withholding purges what is already
+   * stored; granting allows writes from that moment on and replays nothing.
+   * See the `storage` embed option.
+   */
+  setStorageConsent: (granted: boolean): void => dispatch('setStorageConsent', granted),
+  /**
    * Open the panel ON a conversation, optionally routed and pre-filled.
    *
    * `botSlug` is published by the widget as the unsigned context claim
@@ -605,7 +613,7 @@ export const __testing = {
     }
     state = null;
     injectedLoader = false;
-    warnedConflict = false;
+    resetConflictWarning();
   },
   claimCount(): number {
     return state?.claims.size ?? 0;

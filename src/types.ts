@@ -3,12 +3,14 @@
  *
  * ── Why these are declared again here ───────────────────────────────────
  *
- * The authoritative declaration is `InitOptions` in `apps/widget/src/index.ts`.
- * It cannot be imported: that file is a Preact app entry whose import graph
- * pulls in `preact`, `@preact/signals` and a `?inline` CSS import, and this
- * package ships to a customer's bundler with zero dependencies. The headless
- * SDK makes the same call for the same reason (`packages/sdk-js/src/types.ts`
- * — importing `@livechat/shared` drags zod in, measured at ~11KB gzipped).
+ * The authoritative declaration is `InitOptions` in
+ * `packages/sdk-js/src/widget-globals.ts` — it moved there out of
+ * `apps/widget` so a snippet integrator could install it. This package still
+ * cannot IMPORT it: `@chatlychat/widget-element` ships to a customer's
+ * bundler with ZERO dependencies, and taking one on `@chatlychat/sdk-js`
+ * purely to reach a type would put a second browser SDK in the install graph
+ * of every Vue, Svelte and React consumer. A dependency-free copy under a
+ * gate is the cheaper of the two.
  *
  * Two copies of a shape is a drift risk, so it is a CHECKED one:
  * `scripts/check-widget-wrapper-parity.mjs` compares the key sets in this file
@@ -151,6 +153,16 @@ export interface ChatlyCopy {
   backAria?: string;
   unavailableMessage?: string;
   unavailableRetry?: string;
+  /**
+   * The expected-reply note in the header, shown only while somebody is
+   * available to answer. Set it to your real figure, or to an empty string to
+   * show nothing.
+   *
+   * It was a hardcoded sentence the widget showed regardless of staffing, so
+   * an unstaffed workspace told every visitor it typically replies within a
+   * few minutes.
+   */
+  responseTimeNote?: string;
 }
 
 /**
@@ -181,6 +193,16 @@ export interface ChatlyInitOptions {
    * that matches nothing mounts NOTHING and says so.
    */
   mountTo?: string | Element;
+  /**
+   * Whether the widget may use the visitor's browser storage. Default
+   * `'allow'`.
+   *
+   * `'deny'` makes every read return nothing and every write a no-op, and
+   * purges anything already written. For a consent banner: embed with
+   * `'deny'`, then call `setStorageConsent(true)` if the visitor agrees.
+   */
+  storage?: 'allow' | 'deny';
+
   cssOverrides?: string;
   copy?: ChatlyCopy;
   copyByLocale?: Record<string, ChatlyCopy>;
@@ -210,11 +232,23 @@ export interface ChatlySession {
   workspaceId: string;
 }
 
-/** What a `message` event carries. */
+/**
+ * What a `message` event carries.
+ *
+ * `id` is the MESSAGE's id. `conversationId` is the thread it landed in, or
+ * `null` before one exists — it was added to the widget's payload because `id`
+ * alone gave a host page nothing to correlate against, and it was missing here
+ * for exactly as long as it takes a second copy of a shape to drift: the
+ * widget emitted the key, the React wrapper's `onMessage` type did not declare
+ * it, so a consumer reading `m.conversationId` got a type error for a value
+ * that was sitting in the object. `check-widget-wrapper-parity.mjs` compares
+ * this interface against `InitOptions.on.message`'s parameter now.
+ */
 export interface ChatlyMessageEvent {
   id: string;
   body: string;
   authorType: string;
+  conversationId: string | null;
 }
 
 /**
@@ -243,6 +277,32 @@ export interface ChatlyEmbedHandlers {
   onError?: (detail: unknown) => void;
 }
 
+/**
+ * When the widget bundle is fetched.
+ *
+ * Not an init option — the widget has no such setting and must not get one.
+ * This is the LOADER's, and the loader is the only thing on the page early
+ * enough for it to mean anything: by the time `widget.js` is running, the
+ * bytes it would have saved are already spent.
+ *
+ *   - `false` (default) — fetch it on page load, which is what every embed
+ *     has always done. ~44KB gzipped per page view, whether or not the
+ *     visitor ever opens the chat.
+ *   - `true` / `'launcher'` — fetch it when a visitor reaches for the chat.
+ *     The loader paints a stand-in launcher that matches the real one and
+ *     queues the click, so the panel opens as soon as the bundle lands.
+ *   - `'interaction'` — as `'launcher'`, and additionally pre-warm on the
+ *     visitor's first interaction with the page. Suppressed under
+ *     `prefers-reduced-data` or the browser's data saver.
+ *   - `'manual'` — fetch nothing and paint nothing until something calls
+ *     `Chatly('load')`. For a host page that renders its own launcher, which
+ *     is what `<ChatlyLauncher>` in `@chatlychat/widget-react` does.
+ *
+ * Read ONCE, when `loader.js` evaluates. Changing it afterwards cannot
+ * un-fetch a bundle, so the wrapper warns rather than pretending.
+ */
+export type ChatlyLazyMode = boolean | 'launcher' | 'interaction' | 'manual';
+
 /** Where `loader.js` is served from, plus the init options. */
 export interface ChatlyEmbedOptions extends ChatlyInitOptions {
   /**
@@ -259,6 +319,14 @@ export interface ChatlyEmbedOptions extends ChatlyInitOptions {
    * `embed.loaderUrl`. Use that rather than typing a host.
    */
   loaderUrl?: string;
+  /**
+   * Defer the widget bundle until a visitor wants it. See `ChatlyLazyMode`.
+   *
+   * Off by default, deliberately: this changes the behaviour of the one
+   * script that runs on every page of a customer's site, and that is not a
+   * thing to switch on for people who have not read about it.
+   */
+  lazy?: ChatlyLazyMode;
   /**
    * Set the widget's locale once it is up, via `Chatly.setLocale()`.
    *

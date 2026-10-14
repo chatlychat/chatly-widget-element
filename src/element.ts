@@ -58,7 +58,23 @@ const ATTRIBUTES: ReadonlyArray<{
   { attribute: 'api-url', option: 'apiUrl' },
   { attribute: 'realtime-url', option: 'realtimeUrl' },
   { attribute: 'loader-url', option: 'loaderUrl' },
+  /*
+   * `lazy` passes through as the raw string, including the EMPTY string a
+   * bare `<chatly-widget lazy>` produces. The loader is what interprets it
+   * (`normalizeLazy`), and it reads `''` as on — which is wrong in
+   * JavaScript and right in HTML, where a valueless attribute means
+   * presence. Coercing here instead would put a second interpreter of the
+   * same value in a second package.
+   */
+  { attribute: 'lazy', option: 'lazy' },
   { attribute: 'locale', option: 'locale' },
+  /*
+   * `storage="deny"` holds back every write to the visitor's browser, for a
+   * site under a consent banner. Passed through as the raw string; the widget
+   * treats anything other than `deny` as allowed, which keeps every existing
+   * embed unchanged.
+   */
+  { attribute: 'storage', option: 'storage' },
   { attribute: 'css-overrides', option: 'cssOverrides' },
   { attribute: 'theme', option: 'theme', json: true },
   { attribute: 'behavior', option: 'behavior', json: true },

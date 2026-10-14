@@ -66,6 +66,29 @@ describe('attributes', () => {
     expect(argsFor('setLocale')).toEqual([['fr']]);
   });
 
+  /*
+   * `lazy` has no spread in HTML.
+   *
+   * An option missing from `ATTRIBUTES` typechecks, works in React (which
+   * spreads props) and is simply unreachable from `<chatly-widget …>` — the
+   * failure `check-widget-wrapper-parity.mjs` compares that table for. These
+   * two pin the reachable part: that it arrives on the shim where the loader
+   * reads it, and that a BARE attribute is not lost on the way.
+   */
+  it('reaches the loader shim, not the widget init', () => {
+    document.body.innerHTML = '<chatly-widget public-id="acme-web" lazy="manual"></chatly-widget>';
+    expect((w.Chatly as { lazy?: unknown } | undefined)?.lazy).toBe('manual');
+    expect(lastInit()).toEqual({ publicId: 'acme-web' });
+  });
+
+  it('passes a valueless lazy attribute through as the empty string', () => {
+    // Which the loader reads as "on" — HTML presence semantics. Coercing it
+    // here would put a second interpreter of the same value in a second
+    // package.
+    document.body.innerHTML = '<chatly-widget public-id="acme-web" lazy></chatly-widget>';
+    expect((w.Chatly as { lazy?: unknown } | undefined)?.lazy).toBe('');
+  });
+
   it('parses a JSON attribute', () => {
     document.body.innerHTML = `<chatly-widget public-id="acme-web" theme='{"primaryColor":"#111111"}'></chatly-widget>`;
     expect(lastInit()['theme']).toEqual({ primaryColor: '#111111' });

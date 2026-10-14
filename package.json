@@ -1,6 +1,6 @@
 {
   "name": "@chatlychat/widget-element",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The Chatly chat widget as a custom element (<chatly-widget>), plus the embed lifecycle framework wrappers share. Zero dependencies.",
   "license": "MIT",
   "homepage": "https://github.com/chatlychat/chatly-widget-element#readme",
@@ -53,8 +53,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "registry": "https://registry.npmjs.org/",
-    "provenance": true
+    "registry": "https://registry.npmjs.org/"
   },
   "engines": {
     "node": ">=18"
