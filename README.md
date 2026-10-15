@@ -46,6 +46,7 @@ move, and a re-initialisation caused by a re-render that changed nothing.
 | `realtime-url`   | Rarely needed; the API reports the right one.            |
 | `loader-url`     | Where `loader.js` is served from. Rarely set; see below. |
 | `lazy`           | Defer the bundle until a visitor wants it; see below.    |
+| `nonce`          | Your page's CSP nonce, if you serve one; see below.      |
 | `locale`         | Applied with `setLocale()` once the widget is up.        |
 | `css-overrides`  | CSS injected into the widget's shadow root.              |
 | `inline`         | Boolean. Mount the chat inside this element.             |
@@ -96,6 +97,40 @@ With `inline` there is no launcher to stand in for, so the trigger is the
 element approaching the viewport instead. `prefers-reduced-data` and the
 browser's data saver suppress the `interaction` pre-warm; neither ever turns
 lazy mode on by itself.
+
+### `nonce` — a page served with a strict CSP
+
+If your page is served `script-src 'nonce-…'` with no `'unsafe-inline'`, give
+the element that response's nonce:
+
+```html
+<chatly-widget public-id="acme-web" nonce="r4nd0m-per-response"></chatly-widget>
+```
+
+The element puts it on the `loader.js` script it injects, and publishes it as
+`window.Chatly.nonce` so that `widget.js`, the deferred chunks and the panel's
+own stylesheet carry it too. Without it, a nonce-only policy blocks the loader
+and the only sign is a CSP violation in your console.
+
+Two things to get right, and both are about where the value comes from rather
+than about this attribute.
+
+**A nonce is per-response.** Mint a fresh one for every page render and never
+hardcode one: a nonce that repeats is no better than `'unsafe-inline'`, since
+anyone who can read one page's source can then inject a script the next page
+will run. Nothing here caches it — but whatever renders your HTML might, so it
+has to come from the request.
+
+**Read it from the property, not the attribute, if you ever read it back.**
+HTML hides nonces: on a page with a header-delivered CSP the browser blanks the
+`nonce` content attribute as soon as an element is connected and keeps the value
+only in the element's internal slot, which `element.nonce` exposes. That applies
+to `<chatly-widget>` as much as to a `<script>`, so this element reads its own
+nonce through the property — a `getAttribute('nonce')` read works in every test
+and returns nothing on a real page.
+
+If your policy allows the widget's origin by host instead, leave the attribute
+off. Nothing is stamped and the embed injects exactly what it always has.
 
 ### A malformed JSON attribute does not stop the chat
 

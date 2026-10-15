@@ -26,7 +26,9 @@
  * wins when both are set, because a framework binding is the more specific
  * statement.
  */
-import { controls, startWidget, type ChatlyEmbedHandle } from './embed.js';
+import { controls } from './controls.js';
+import { startWidget, type ChatlyEmbedHandle } from './embed.js';
+import { readNonce } from './nonce.js';
 
 import type {
   ChatlyBehavior,
@@ -53,6 +55,8 @@ const ATTRIBUTES: ReadonlyArray<{
   readonly attribute: string;
   readonly option: keyof ChatlyEmbedOptions;
   readonly json?: true;
+  /** Overrides the plain `getAttribute` read. One row needs it — see `nonce`. */
+  readonly read?: (element: HTMLElement) => string | null;
 }> = [
   { attribute: 'public-id', option: 'publicId' },
   { attribute: 'api-url', option: 'apiUrl' },
@@ -76,6 +80,23 @@ const ATTRIBUTES: ReadonlyArray<{
    */
   { attribute: 'storage', option: 'storage' },
   { attribute: 'css-overrides', option: 'cssOverrides' },
+  /*
+   * `nonce` is read through `element.nonce`, NOT `getAttribute('nonce')`.
+   *
+   * HTML hides a nonce: when an element that includes `HTMLOrSVGElement`
+   * becomes browsing-context connected and the document carries a
+   * HEADER-delivered CSP, the browser blanks the nonce CONTENT ATTRIBUTE and
+   * keeps the value only in the element's internal `[[CryptographicNonce]]`,
+   * which the IDL property exposes. That applies to every element, this one
+   * included.
+   *
+   * So a `getAttribute` read works in jsdom, works under a `<meta>`-delivered
+   * policy (not hidden), and returns the empty string on the real
+   * header-CSP page the whole feature exists for. `readNonce` tries the
+   * property first and the attribute second; they agree everywhere except
+   * the case that matters.
+   */
+  { attribute: 'nonce', option: 'nonce', read: (el) => readNonce(el) ?? null },
   { attribute: 'theme', option: 'theme', json: true },
   { attribute: 'behavior', option: 'behavior', json: true },
   { attribute: 'visitor', option: 'visitor', json: true },
@@ -352,8 +373,8 @@ function buildElementClass(): CustomElementConstructor {
     /** Attributes, then properties (which win), then `config` (which wins). */
     #options(): ChatlyEmbedOptions {
       const options: Record<string, unknown> = {};
-      for (const { attribute, option, json } of ATTRIBUTES) {
-        const raw = this.getAttribute(attribute);
+      for (const { attribute, option, json, read } of ATTRIBUTES) {
+        const raw = read === undefined ? this.getAttribute(attribute) : read(this);
         if (raw === null) {
           continue;
         }

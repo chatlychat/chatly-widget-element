@@ -1,0 +1,120 @@
+/**
+ * `controls` — the widget's post-boot methods, as a host calls them.
+ *
+ * Split out of `embed.ts` at the 650-line ceiling. The seam: `embed.ts` owns
+ * the MOUNT (claims, reference counting, boot, reconcile, teardown), and this
+ * file owns the imperative surface a host reaches for afterwards. Nothing in
+ * `embed.ts` reads `controls`, so the edge is one-way and there is no cycle.
+ *
+ * `scripts/check-widget-wrapper-parity.mjs` reads this object by path and
+ * compares it against the widget's `ChatlyApi` in both directions — it was
+ * repointed here in the same commit as the move, and its coverage floor
+ * would have failed loudly if it had not been.
+ */
+import { dispatch, read } from './embed.js';
+
+import type { ChatlyIdentity } from './types.js';
+
+/**
+ * The widget's post-boot methods, typed.
+ *
+ * This is `ChatlyApi` minus `init`/`destroy` — see the header for why those
+ * two are not here — and it invents NOTHING: every method below exists on
+ * `window.Chatly`, and `apps/widget/src/public-api.spec.ts` pins which ones do
+ * (including a test for the two the widget deliberately does not offer).
+ * `scripts/check-widget-wrapper-parity.mjs` fails the build if this object and
+ * that interface drift.
+ *
+ * Every call returns `void`, including the two the widget returns a promise
+ * from. The call may be QUEUED — the bundle has not necessarily arrived — and
+ * there is nothing to await in that state. `onIdentified` is how you learn
+ * that an `identify` landed; `onError` is how you learn it did not.
+ */
+export const controls = {
+  open: (tab?: 'home' | 'messages' | 'help'): void => dispatch('open', tab),
+  close: (): void => dispatch('close'),
+  toggle: (next?: 'open' | 'close' | boolean): void => dispatch('toggle', next),
+  identify: (identity: ChatlyIdentity): void => dispatch('identify', identity),
+  setUser: (externalId: string, attributes?: Record<string, unknown>): void =>
+    dispatch('setUser', externalId, attributes),
+  setCustomAttributes: (attributes: Record<string, unknown>): void =>
+    dispatch('setCustomAttributes', attributes),
+  deleteCustomAttribute: (key: string): void => dispatch('deleteCustomAttribute', key),
+  setLabel: (label: string): void => dispatch('setLabel', label),
+  removeLabel: (label: string): void => dispatch('removeLabel', label),
+  setLocale: (locale: string): void => dispatch('setLocale', locale),
+  track: (name: string, properties?: Record<string, unknown>): void =>
+    dispatch('track', name, properties),
+  registerPushToken: (
+    platform: 'apns' | 'fcm' | 'web-push',
+    token: string,
+    appVersion?: string,
+  ): void => dispatch('registerPushToken', platform, token, appVersion),
+  reset: (): void => dispatch('reset'),
+  /**
+   * Grant or withhold consent to use the visitor's browser storage.
+   *
+   * The call a consent banner makes. Withholding purges what is already
+   * stored; granting allows writes from that moment on and replays nothing.
+   * See the `storage` embed option.
+   */
+  setStorageConsent: (granted: boolean): void => dispatch('setStorageConsent', granted),
+  /**
+   * Unread replies waiting for this visitor, across their threads (W-06).
+   *
+   * `0` when no widget is mounted yet, which is the ordinary case for a badge
+   * that renders on first paint. Pair it with the `unread` event rather than
+   * polling: the event fires whenever the total changes, including the first
+   * time it is known.
+   */
+  getUnreadCount: (): number => read('getUnreadCount', 0),
+  /**
+   * Whether this browser already holds a conversation on this channel (W-07).
+   *
+   * What lazy mode tests before deciding to load eagerly, exposed so a host
+   * page can make the same decision — showing "continue your conversation"
+   * rather than "chat with us", say. `false` before the widget mounts.
+   */
+  hasSession: (): boolean => read('hasSession', false),
+  /**
+   * Open the panel ON a conversation, optionally routed and pre-filled.
+   *
+   * `botSlug` is published by the widget as the unsigned context claim
+   * `context.unverified.bot`, which an operator keys a bot route on — there
+   * is no "start with bot X" endpoint. A visitor can therefore forge it,
+   * which is fine for "ask the shopping agent rather than support" and not
+   * fine if the two assistants differ in what they may reach.
+   */
+  startConversation: (request?: { botSlug?: string; initialMessage?: string }): void =>
+    dispatch('startConversation', request),
+  /**
+   * Tell the widget what this page claims about the visitor.
+   *
+   * `audience` is UNSIGNED — it lands in `context.unverified.audience` and
+   * the visitor can set it themselves, because the widget is on their page.
+   * `contextToken` is a JWT your SERVER signs with the channel's
+   * identity-verification secret, and only its claims reach
+   * `context.verified.*`, which is the bag a privilege decision may rest on.
+   */
+  setContext: (input: {
+    audience?: string;
+    context?: Record<string, string | number | boolean>;
+    page?: { path?: string; url?: string };
+    contextToken?: string;
+  }): void => dispatch('setContext', input),
+  /**
+   * Report what your page did with a `host_event`, back into the thread.
+   *
+   * Pass back the `messageId` and `actionId` the `action` event handed you.
+   * Reporting the same action twice replaces the first result rather than
+   * stacking, so your own retry logic leaves one line.
+   */
+  reportAction: (input: {
+    messageId: string;
+    actionId: string;
+    status: 'done' | 'failed';
+    text?: string;
+    blocks?: unknown;
+    data?: Record<string, unknown>;
+  }): void => dispatch('reportAction', input),
+} as const;

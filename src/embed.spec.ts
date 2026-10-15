@@ -10,7 +10,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { __testing, controls, startWidget, subscribe } from './embed.js';
+import { controls } from './controls.js';
+import { __testing, startWidget, subscribe } from './embed.js';
 
 import type { ChatlyEmbedOptions } from './types.js';
 
@@ -18,7 +19,7 @@ import type { ChatlyEmbedOptions } from './types.js';
 let calls: unknown[][] = [];
 
 interface ShimWindow {
-  Chatly?: ((...args: unknown[]) => void) & { q?: unknown[]; publicId?: string };
+  Chatly?: ((...args: unknown[]) => void) & { q?: unknown[]; publicId?: string; nonce?: string };
 }
 
 const w = globalThis.window as unknown as ShimWindow;
@@ -270,6 +271,82 @@ describe('the loader script', () => {
     // on its way. A second script tag would fetch the bundle twice.
     startWidget({}, BASE);
     expect(document.head.querySelectorAll('script')).toHaveLength(0);
+  });
+
+  /*
+   * ── The CSP nonce ───────────────────────────────────────────────────
+   *
+   * A host page served `script-src 'nonce-X'` with no `'unsafe-inline'` runs
+   * a script only if it carries X. These assert on the ATTRIBUTE of the
+   * element that was actually injected, not on a value having been passed
+   * along — the whole bug class here is a nonce that reaches the wrapper and
+   * never reaches the DOM.
+   */
+  it('stamps the nonce on the script it injects', () => {
+    delete w.Chatly;
+    startWidget({}, { ...BASE, nonce: 'n0nce', loaderUrl: 'https://cdn.test/loader.js' });
+    const script = document.head.querySelector('script[data-chatly-loader]');
+    expect(script?.getAttribute('nonce')).toBe('n0nce');
+    // And the property, which is what the browser's CSP check actually reads
+    // and the only half that survives nonce-hiding.
+    expect((script as HTMLScriptElement | null)?.nonce).toBe('n0nce');
+  });
+
+  it('injects exactly what it always did when no nonce is given', () => {
+    // Both packages are published. The absent-by-default behaviour has to be
+    // identical, so this pins the no-nonce case rather than assuming it.
+    delete w.Chatly;
+    startWidget({}, { ...BASE, loaderUrl: 'https://cdn.test/loader.js' });
+    const script = document.head.querySelector('script[data-chatly-loader]');
+    expect(script?.hasAttribute('nonce')).toBe(false);
+    expect((w.Chatly as { nonce?: string } | undefined)?.nonce).toBeUndefined();
+  });
+
+  it('has the nonce in place BEFORE the loader script is appended', () => {
+    /*
+     * Both halves have to be true at the moment of insertion, and both look
+     * identical afterwards — which is why this inspects the insertion rather
+     * than the end state.
+     *
+     *   - the SCRIPT's own nonce, because the CSP check runs on insertion. A
+     *     nonce assigned after `appendChild` is one the browser never saw,
+     *     and the DOM looks the same.
+     *   - the SHIM's, because the loader stamps `widget.js` from
+     *     `window.Chatly.nonce` as its own script evaluates, so a write that
+     *     lands later is a write it may never read.
+     */
+    delete w.Chatly;
+    let shimNonce: unknown = 'never appended';
+    let scriptNonce: unknown = 'never appended';
+    const append = vi
+      .spyOn(document.head, 'appendChild')
+      .mockImplementation(<T extends Node>(node: T): T => {
+        shimNonce = (globalThis.window as unknown as ShimWindow).Chatly?.nonce;
+        scriptNonce = (node as unknown as HTMLScriptElement).getAttribute('nonce');
+        return node;
+      });
+    startWidget({}, { ...BASE, nonce: 'n0nce' });
+    expect(append).toHaveBeenCalled();
+    expect(shimNonce).toBe('n0nce');
+    expect(scriptNonce).toBe('n0nce');
+  });
+
+  it('keeps the nonce out of the widget init options', () => {
+    // It is the loader's and the bundle's, carried on the shim. Passing it
+    // through `init` as well would be a collision the day the widget adds a
+    // key of that name — the same reason `lazy` is stripped.
+    startWidget({}, { ...BASE, nonce: 'n0nce' });
+    expect(argsFor('init')[0]?.[0]).toEqual({ publicId: 'acme-web' });
+  });
+
+  it('refuses a nonce change rather than pretending to re-stamp', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const handle = startWidget({}, { ...BASE, nonce: 'first' });
+    handle.update({ ...BASE, nonce: 'second' });
+    expect(warn.mock.calls.flat().join(' ')).toMatch(/nonce changed/);
+    // And no re-init: a nonce is per-response, and re-mounting the widget
+    // would not re-stamp a script the browser has already evaluated.
+    expect(argsFor('init')).toHaveLength(1);
   });
 
   it('says so when the loader cannot be fetched, instead of nothing at all', () => {

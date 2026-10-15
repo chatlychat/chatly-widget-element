@@ -220,6 +220,25 @@ export type ChatlyEventName =
   | 'open'
   | 'close'
   | 'message'
+  /**
+   * A message the visitor sent has been accepted by the server (W-09).
+   *
+   * Carries `{ id, localId, conversationId }`. `id` is the persisted id and
+   * `localId` is the one the thread showed while the message was in flight,
+   * so a host mirroring the thread can swap one for the other. It fires only
+   * after acceptance — a send that failed announces nothing.
+   */
+  | 'message.ack'
+  /** A message from an agent or a bot arrived. */
+  | 'message.received'
+  /**
+   * The unread total changed (W-06). Carries `{ count }`.
+   *
+   * Fires the first time the total is known as well as on every change, so a
+   * badge can render from the event alone and never has to poll
+   * `getUnreadCount()`.
+   */
+  | 'unread'
   | 'conversation'
   | 'identified'
   | 'reset'
@@ -327,6 +346,34 @@ export interface ChatlyEmbedOptions extends ChatlyInitOptions {
    * thing to switch on for people who have not read about it.
    */
   lazy?: ChatlyLazyMode;
+  /**
+   * Your page's CSP nonce, for a host served with `script-src 'nonce-…'`.
+   *
+   * Under a nonce-based policy with no `'unsafe-inline'`, a script runs only
+   * if it carries that response's nonce — so the embed's own `loader.js` tag
+   * is stamped with this value, and it is published on the loader shim as
+   * `window.Chatly.nonce` so that `widget.js`, the deferred chunks and the
+   * panel's injected stylesheet are stamped with it too.
+   *
+   *     // Next.js: the nonce your middleware minted for THIS response
+   *     const nonce = (await headers()).get('x-nonce') ?? undefined;
+   *     <ChatlyWidget publicId="acme-web" nonce={nonce} />
+   *
+   * Leave it unset if your policy allows the widget's origin by host — the
+   * embed then injects exactly what it always has, with no nonce attribute on
+   * anything.
+   *
+   * **Give it a fresh value per response and never a hardcoded one.** A nonce
+   * reused across responses is no better than `'unsafe-inline'`: anyone who
+   * can read one page's source can then inject a script the next page will
+   * run. Nothing in this package caches it — but a framework will happily
+   * cache the HTML you put it in, so it has to come from the request.
+   *
+   * Read ONCE, before `loader.js` is injected. Changing it afterwards cannot
+   * un-stamp a script that has already been inserted, so the wrapper warns
+   * rather than pretending — the same treatment `lazy` and `loaderUrl` get.
+   */
+  nonce?: string;
   /**
    * Set the widget's locale once it is up, via `Chatly.setLocale()`.
    *

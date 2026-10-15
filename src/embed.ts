@@ -38,6 +38,7 @@
  * not both.
  */
 import { resetConflictWarning, warnOnConflict } from './conflict-warning.js';
+import { injectLoader, loaderInjected, resetLoaderInjection } from './inject-loader.js';
 import { warnLateBootOption } from './lazy.js';
 import { sameOptions, sameValue } from './same-value.js';
 
@@ -77,6 +78,13 @@ interface ChatlyGlobalShim {
    * anything on it, so the answer has to be sitting on the global already.
    */
   lazy?: ChatlyLazyMode;
+  /**
+   * This response's CSP nonce, for everything injected AFTER us — the
+   * bundle, its chunks, its stylesheet. A shim property rather than an init
+   * option because the loader appends `widget.js` before anything here can
+   * hand it over. See `nonce.ts`.
+   */
+  nonce?: string;
   /** Present only once the bundle has loaded. Used as "is it up yet". */
   init?: (opts: ChatlyInitOptions) => void;
 }
@@ -109,14 +117,13 @@ interface MountState {
   loaderUrl: string;
   /** Likewise: read once by loader.js, so a later change can only warn. */
   lazy: ChatlyLazyMode | undefined;
+  /** Likewise, and more so: a stamped script cannot be un-stamped. */
+  nonce: string | undefined;
   /** Pending deferred teardown, cancelled by a remount. See `release`. */
   teardown: ReturnType<typeof setTimeout> | null;
 }
 
 let state: MountState | null = null;
-
-/** True once THIS module injected a loader script, so it never injects twice. */
-let injectedLoader = false;
 
 export interface ChatlyEmbedHandle {
   /**
@@ -184,6 +191,7 @@ export function startWidget(
     active: options,
     loaderUrl: options.loaderUrl ?? DEFAULT_LOADER_URL,
     lazy: options.lazy,
+    nonce: options.nonce,
     teardown: null,
   };
   boot(state);
@@ -233,6 +241,13 @@ function boot(mount: MountState): void {
   if (mount.active.lazy !== undefined) {
     shim.lazy = mount.active.lazy;
   }
+  // Same ordering, same reason: the loader stamps the bundle script from this
+  // property, and `injectLoader` below is what fetches the loader. Published
+  // even when the page brought its own snippet — we may be the only one of
+  // the two that was told.
+  if (mount.active.nonce !== undefined && mount.active.nonce !== '') {
+    shim.nonce = mount.active.nonce;
+  }
 
   // Subscribe BEFORE init so nothing emitted during boot is missed. `ready`
   // would survive a late subscription (the widget replays the last one) but
@@ -246,52 +261,26 @@ function boot(mount: MountState): void {
     shim('setLocale', mount.active.locale);
   }
 
-  if (bundleAlreadyLoaded || preexisting || injectedLoader) {
+  if (bundleAlreadyLoaded || preexisting || loaderInjected()) {
     return;
   }
-  injectLoader(mount.loaderUrl);
+  injectLoader(mount.loaderUrl, mount.nonce);
 }
 
 /** The options the widget's own `init` gets — ours, minus our own extras. */
 function initOptionsFor(options: ChatlyEmbedOptions): ChatlyInitOptions {
-  // `loaderUrl`, `lazy` and `locale` are this package's, not the widget's.
-  // Passing them through would be harmless today and a collision the day the
-  // widget adds a key of the same name, so they are stripped rather than
-  // ignored. `lazy` would also be the worst of the three to leak: the widget
-  // ignores unknown options, so it would look like a setting that works.
-  const { loaderUrl: _loaderUrl, lazy: _lazy, locale: _locale, ...init } = options;
+  // `loaderUrl`, `lazy`, `nonce` and `locale` are this package's, not the
+  // widget's. Passing them through would be harmless today and a collision
+  // the day the widget adds a key of the same name, so they are stripped
+  // rather than ignored. `lazy` would be the worst of the four to leak: the
+  // widget ignores unknown options, so it would look like a setting that
+  // works.
+  const { loaderUrl: _loaderUrl, lazy: _lazy, nonce: _nonce, locale: _locale, ...init } = options;
   return init;
 }
 
-function injectLoader(loaderUrl: string): void {
-  injectedLoader = true;
-  /*
-   * The DOM is the real source of truth, not `injectedLoader`.
-   *
-   * A dev-server hot reload re-evaluates this module — resetting the flag —
-   * while the page keeps the script tag it already appended. Checking the
-   * marker attribute means a reload does not stack a second loader (and a
-   * second bundle fetch) onto a page that already has one.
-   */
-  if (document.querySelector('script[data-chatly-loader]') !== null) {
-    return;
-  }
-  const script = document.createElement('script');
-  script.async = true;
-  script.src = loaderUrl;
-  script.setAttribute('data-chatly-loader', '');
-  script.onerror = (): void => {
-    // The loader has the same message for the bundle it fetches. A script that
-    // never loads is otherwise completely silent: an ad blocker, a CSP missing
-    // the widget origin, or a typo'd `loaderUrl` all produce an empty page
-    // corner and an empty console.
-    console.warn(`[Chatly] widget loader failed to load from ${loaderUrl}`);
-  };
-  document.head.appendChild(script);
-}
-
 /** Dispatch through the callable form, which works queued or live. */
-function dispatch(method: string, ...args: unknown[]): void {
+export function dispatch(method: string, ...args: unknown[]): void {
   const w = embedWindow();
   const chatly = w?.Chatly;
   if (typeof chatly !== 'function') {
@@ -305,6 +294,40 @@ function dispatch(method: string, ...args: unknown[]): void {
     return;
   }
   chatly(method, ...args);
+}
+
+/**
+ * Read a value back OUT of the widget, with a fallback when none is mounted.
+ *
+ * Separate from `dispatch` for one reason that matters: it does NOT warn.
+ * `dispatch` warns because a header button wired to `open()` on a page with
+ * no widget is a configuration mistake worth saying out loud. A READ before
+ * the widget mounts is the opposite — an unread badge renders on first paint
+ * and polls, so the pre-mount read is the ordinary path and warning on it
+ * would fill the console on every page that draws one.
+ *
+ * `window.Chatly` is `Object.assign(dispatch, api)` — callable AND an object
+ * of methods — so the method is read straight off it rather than going
+ * through the queue, which has no way to return anything.
+ *
+ * Both fallbacks are the "nothing yet" answer AND the safe one: no badge,
+ * and not a returning visitor.
+ */
+export function read<T>(method: string, fallback: T): T {
+  const chatly = embedWindow()?.Chatly as
+    | (((...a: unknown[]) => void) & Record<string, unknown>)
+    | undefined;
+  const fn = chatly?.[method];
+  if (typeof fn !== 'function') {
+    return fallback;
+  }
+  try {
+    return (fn as () => T)();
+  } catch {
+    // A widget mid-teardown, or an older bundle whose method throws. The
+    // host page's render must not fail over a badge.
+    return fallback;
+  }
 }
 
 /**
@@ -363,6 +386,13 @@ function reconcile(): void {
   if (next.lazy !== state.lazy) {
     warnLateBootOption('lazy', state.lazy, next.lazy);
     state.lazy = next.lazy;
+  }
+  // A nonce is per-response, so within one document this should never fire.
+  // A page that rotates it mid-life wants already-evaluated scripts
+  // re-stamped, which cannot happen; refused loudly rather than stored.
+  if (next.nonce !== state.nonce) {
+    warnLateBootOption('nonce', state.nonce, next.nonce);
+    state.nonce = next.nonce;
   }
 
   const initChanged = !sameOptions(initOptionsFor(active), initOptionsFor(next), ['visitor']);
@@ -495,91 +525,10 @@ function fanOut(call: (handlers: ChatlyEmbedHandlers) => void): void {
 }
 
 /**
- * The widget's post-boot methods, typed.
- *
- * This is `ChatlyApi` minus `init`/`destroy` — see the header for why those
- * two are not here — and it invents NOTHING: every method below exists on
- * `window.Chatly`, and `apps/widget/src/public-api.spec.ts` pins which ones do
- * (including a test for the two the widget deliberately does not offer).
- * `scripts/check-widget-wrapper-parity.mjs` fails the build if this object and
- * that interface drift.
- *
- * Every call returns `void`, including the two the widget returns a promise
- * from. The call may be QUEUED — the bundle has not necessarily arrived — and
- * there is nothing to await in that state. `onIdentified` is how you learn
- * that an `identify` landed; `onError` is how you learn it did not.
+ * Re-exported because it was part of this module's surface before the split
+ * and `same-value.spec.ts` imports it from here.
  */
-export const controls = {
-  open: (tab?: 'home' | 'messages' | 'help'): void => dispatch('open', tab),
-  close: (): void => dispatch('close'),
-  toggle: (next?: 'open' | 'close' | boolean): void => dispatch('toggle', next),
-  identify: (identity: ChatlyIdentity): void => dispatch('identify', identity),
-  setUser: (externalId: string, attributes?: Record<string, unknown>): void =>
-    dispatch('setUser', externalId, attributes),
-  setCustomAttributes: (attributes: Record<string, unknown>): void =>
-    dispatch('setCustomAttributes', attributes),
-  deleteCustomAttribute: (key: string): void => dispatch('deleteCustomAttribute', key),
-  setLabel: (label: string): void => dispatch('setLabel', label),
-  removeLabel: (label: string): void => dispatch('removeLabel', label),
-  setLocale: (locale: string): void => dispatch('setLocale', locale),
-  track: (name: string, properties?: Record<string, unknown>): void =>
-    dispatch('track', name, properties),
-  registerPushToken: (
-    platform: 'apns' | 'fcm' | 'web-push',
-    token: string,
-    appVersion?: string,
-  ): void => dispatch('registerPushToken', platform, token, appVersion),
-  reset: (): void => dispatch('reset'),
-  /**
-   * Grant or withhold consent to use the visitor's browser storage.
-   *
-   * The call a consent banner makes. Withholding purges what is already
-   * stored; granting allows writes from that moment on and replays nothing.
-   * See the `storage` embed option.
-   */
-  setStorageConsent: (granted: boolean): void => dispatch('setStorageConsent', granted),
-  /**
-   * Open the panel ON a conversation, optionally routed and pre-filled.
-   *
-   * `botSlug` is published by the widget as the unsigned context claim
-   * `context.unverified.bot`, which an operator keys a bot route on — there
-   * is no "start with bot X" endpoint. A visitor can therefore forge it,
-   * which is fine for "ask the shopping agent rather than support" and not
-   * fine if the two assistants differ in what they may reach.
-   */
-  startConversation: (request?: { botSlug?: string; initialMessage?: string }): void =>
-    dispatch('startConversation', request),
-  /**
-   * Tell the widget what this page claims about the visitor.
-   *
-   * `audience` is UNSIGNED — it lands in `context.unverified.audience` and
-   * the visitor can set it themselves, because the widget is on their page.
-   * `contextToken` is a JWT your SERVER signs with the channel's
-   * identity-verification secret, and only its claims reach
-   * `context.verified.*`, which is the bag a privilege decision may rest on.
-   */
-  setContext: (input: {
-    audience?: string;
-    context?: Record<string, string | number | boolean>;
-    page?: { path?: string; url?: string };
-    contextToken?: string;
-  }): void => dispatch('setContext', input),
-  /**
-   * Report what your page did with a `host_event`, back into the thread.
-   *
-   * Pass back the `messageId` and `actionId` the `action` event handed you.
-   * Reporting the same action twice replaces the first result rather than
-   * stacking, so your own retry logic leaves one line.
-   */
-  reportAction: (input: {
-    messageId: string;
-    actionId: string;
-    status: 'done' | 'failed';
-    text?: string;
-    blocks?: unknown;
-    data?: Record<string, unknown>;
-  }): void => dispatch('reportAction', input),
-} as const;
+export { sameValue } from './same-value.js';
 
 /**
  * Subscribe to one widget event, and get the unsubscribe back.
@@ -612,7 +561,7 @@ export const __testing = {
       clearTimeout(state.teardown);
     }
     state = null;
-    injectedLoader = false;
+    resetLoaderInjection();
     resetConflictWarning();
   },
   claimCount(): number {
@@ -622,9 +571,3 @@ export const __testing = {
     return state !== null;
   },
 };
-
-/**
- * Re-exported because it was part of this module's surface before the split
- * and `same-value.spec.ts` imports it from here.
- */
-export { sameValue } from './same-value.js';

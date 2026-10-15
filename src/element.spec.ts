@@ -15,7 +15,7 @@ import { __testing } from './embed.js';
 let calls: unknown[][] = [];
 
 interface ShimWindow {
-  Chatly?: ((...args: unknown[]) => void) & { q?: unknown[]; publicId?: string };
+  Chatly?: ((...args: unknown[]) => void) & { q?: unknown[]; publicId?: string; nonce?: string };
 }
 
 const w = globalThis.window as unknown as ShimWindow;
@@ -87,6 +87,55 @@ describe('attributes', () => {
     // package.
     document.body.innerHTML = '<chatly-widget public-id="acme-web" lazy></chatly-widget>';
     expect((w.Chatly as { lazy?: unknown } | undefined)?.lazy).toBe('');
+  });
+
+  /*
+   * ── The CSP nonce ───────────────────────────────────────────────────
+   *
+   * Reachable from HTML (it is in `ATTRIBUTES`) and read through the IDL
+   * property rather than `getAttribute`, because HTML blanks a nonce content
+   * attribute on connection whenever the document carries a header-delivered
+   * CSP — which is every page this option exists for.
+   */
+  it('carries a nonce attribute through to the shim and the injected script', () => {
+    delete w.Chatly;
+    document.head.innerHTML = '';
+    document.body.innerHTML = '<chatly-widget public-id="acme-web" nonce="n0nce"></chatly-widget>';
+    expect((globalThis.window as unknown as ShimWindow).Chatly?.nonce).toBe('n0nce');
+    const script = document.head.querySelector('script[data-chatly-loader]');
+    expect(script?.getAttribute('nonce')).toBe('n0nce');
+  });
+
+  it('reads the nonce PROPERTY when the browser has blanked the attribute', () => {
+    /*
+     * The real customer page, which no `getAttribute`-shaped read survives:
+     * under a header-delivered CSP the nonce attribute is the empty string by
+     * the time anything reads it, and the value lives only in the element's
+     * internal slot. jsdom reflects the two onto each other, so the split is
+     * constructed here.
+     */
+    delete w.Chatly;
+    document.head.innerHTML = '';
+    const el = document.createElement('chatly-widget');
+    el.setAttribute('public-id', 'acme-web');
+    Object.defineProperty(el, 'nonce', { value: 'hidden-nonce', configurable: true });
+    el.setAttribute('nonce', '');
+    document.body.appendChild(el);
+    expect(el.getAttribute('nonce')).toBe('');
+    expect((globalThis.window as unknown as ShimWindow).Chatly?.nonce).toBe('hidden-nonce');
+    expect(document.head.querySelector('script[data-chatly-loader]')?.getAttribute('nonce')).toBe(
+      'hidden-nonce',
+    );
+  });
+
+  it('injects no nonce when the element carries none', () => {
+    // The published absent-by-default behaviour, pinned rather than assumed.
+    delete w.Chatly;
+    document.head.innerHTML = '';
+    document.body.innerHTML = '<chatly-widget public-id="acme-web"></chatly-widget>';
+    const script = document.head.querySelector('script[data-chatly-loader]');
+    expect(script?.hasAttribute('nonce')).toBe(false);
+    expect((globalThis.window as unknown as ShimWindow).Chatly?.nonce).toBeUndefined();
   });
 
   it('parses a JSON attribute', () => {

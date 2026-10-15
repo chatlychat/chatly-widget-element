@@ -1,5 +1,25 @@
 # @chatlychat/widget-element — changelog
 
+## Unreleased
+
+- `nonce` on `ChatlyEmbedOptions`, and a `nonce` attribute on
+  `<chatly-widget>`: the page's CSP nonce, for a host served
+  `script-src 'nonce-…'` with no `'unsafe-inline'`. Stamped on the `loader.js`
+  script this package injects — before `appendChild`, because the CSP check
+  runs on insertion — and published as `window.Chatly.nonce` so the loader and
+  the bundle can stamp `widget.js`, the deferred chunks and the panel's
+  stylesheet. Optional; with it unset the embed injects exactly what it always
+  has.
+
+  The attribute is read through `element.nonce` rather than
+  `getAttribute('nonce')`: HTML blanks a nonce content attribute once an
+  element is connected on any page with a header-delivered CSP, so an
+  attribute read passes every test and returns nothing on the real page.
+
+  **Not sufficient on its own.** The chain has three injection points and this
+  package owns one; `apps/widget-loader` and `apps/widget` have to honour
+  `window.Chatly.nonce` before a strict-CSP page actually renders a chat.
+
 ## 0.2.0 — 2026-10-14
 
 - `lazy` on `ChatlyEmbedOptions`, and a `lazy` attribute on

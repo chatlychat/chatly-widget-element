@@ -15,13 +15,10 @@
  *     import { defineChatlyWidget } from '@chatlychat/widget-element';
  *     defineChatlyWidget('acme-chat');
  */
-export {
-  controls,
-  startWidget,
-  subscribe,
-  DEFAULT_LOADER_URL,
-  type ChatlyEmbedHandle,
-} from './embed.js';
+// `controls` moved to its own module when `embed.ts` crossed the 650-line
+// ceiling; the published surface is unchanged.
+export { controls } from './controls.js';
+export { startWidget, subscribe, DEFAULT_LOADER_URL, type ChatlyEmbedHandle } from './embed.js';
 /**
  * Start the bundle download without opening anything.
  *
