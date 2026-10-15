@@ -56,6 +56,8 @@ export type {
   ChatlyInitOptions,
   ChatlyLazyMode,
   ChatlyMessageEvent,
+  ChatlyMessageReceivedEvent,
+  ChatlyOpenEvent,
   ChatlyQuickLink,
   ChatlyQuip,
   ChatlySession,

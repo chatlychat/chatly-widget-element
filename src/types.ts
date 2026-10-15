@@ -217,6 +217,7 @@ export interface ChatlyInitOptions {
  */
 export type ChatlyEventName =
   | 'ready'
+  /** The panel opened. Carries `ChatlyOpenEvent`. */
   | 'open'
   | 'close'
   | 'message'
@@ -229,7 +230,11 @@ export type ChatlyEventName =
    * after acceptance — a send that failed announces nothing.
    */
   | 'message.ack'
-  /** A message from an agent or a bot arrived. */
+  /**
+   * A message from an agent or a bot arrived while its thread was on screen.
+   * Carries `ChatlyMessageReceivedEvent`. Never fires for history loaded when
+   * a thread is opened.
+   */
   | 'message.received'
   /**
    * The unread total changed (W-06). Carries `{ count }`.
@@ -271,6 +276,34 @@ export interface ChatlyMessageEvent {
 }
 
 /**
+ * What an `open` event carries (Crossly round 6, #5).
+ *
+ * `conversationId` is the thread the panel opened ON, or `null` for the home
+ * screen, a tab, an article, or a new conversation not yet sent. Until
+ * 2026-10-15 the widget emitted `{}`, so a host could not tell "opened to read
+ * a reply" from "opened from cold".
+ */
+export interface ChatlyOpenEvent {
+  conversationId: string | null;
+}
+
+/**
+ * What a `message.received` event carries: an agent or bot message that
+ * arrived while its thread was on screen. `id` is the STORED message's id —
+ * the one webhooks and the REST API use — so a host can correlate it.
+ *
+ * Not a wrapper callback (there is no `onMessageReceived`): subscribe with
+ * `Chatly.on('message.received', …)`. Declared here so that subscriber has a
+ * type to cast to.
+ */
+export interface ChatlyMessageReceivedEvent {
+  id: string;
+  conversationId: string;
+  authorType: 'agent' | 'bot';
+  body: string;
+}
+
+/**
  * Subscribers a wrapper forwards to.
  *
  * Every one is optional and every one is called with whatever the widget
@@ -278,7 +311,8 @@ export interface ChatlyMessageEvent {
  */
 export interface ChatlyEmbedHandlers {
   onReady?: (session: ChatlySession) => void;
-  onOpen?: () => void;
+  /** `() => void` is still assignable — the detail was added, not required. */
+  onOpen?: (detail: ChatlyOpenEvent) => void;
   onClose?: () => void;
   onMessage?: (message: ChatlyMessageEvent) => void;
   onConversation?: (detail: unknown) => void;

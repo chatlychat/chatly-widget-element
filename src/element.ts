@@ -402,7 +402,7 @@ function buildElementClass(): CustomElementConstructor {
      * Re-dispatch every widget event as a DOM event on this element.
      *
      * Written out rather than generated from `ELEMENT_EVENTS` in a loop: the
-     * handler signatures differ (`onOpen` takes nothing, `onReady` a session),
+     * handler signatures differ (`onOpen` takes a `ChatlyOpenEvent`, `onReady` a session),
      * and assigning through a string index would need a cast that defeats the
      * one thing the compiler is useful for here — noticing that a handler name
      * in `ChatlyEmbedHandlers` has no `chatly-*` event.

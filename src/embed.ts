@@ -50,6 +50,7 @@ import type {
   ChatlyInitOptions,
   ChatlyLazyMode,
   ChatlyMessageEvent,
+  ChatlyOpenEvent,
   ChatlySession,
 } from './types.js';
 
@@ -487,13 +488,14 @@ function release(claim: object): void {
  * mounts — the kind of bug that only shows up after a few route changes.
  */
 const FORWARDERS: ReadonlyArray<[ChatlyEventName, (detail: unknown) => void]> = [
-  // The two asserted payloads are the widget's own — `SessionSnapshot` for
-  // ready/identified, `{ id, body, authorType }` for message — mirrored in
+  // The asserted payloads are the widget's own — `SessionSnapshot` for
+  // ready/identified, `{ id, body, authorType, conversationId }` for message,
+  // `{ conversationId }` for open — mirrored in
   // `types.ts` and held there by the parity gate. The rest stay `unknown`
   // because the widget's own types do: re-typing them here would be inventing
   // a contract rather than forwarding one.
   ['ready', (d) => fanOut((h) => h.onReady?.(d as ChatlySession))],
-  ['open', () => fanOut((h) => h.onOpen?.())],
+  ['open', (d) => fanOut((h) => h.onOpen?.(d as ChatlyOpenEvent))],
   ['close', () => fanOut((h) => h.onClose?.())],
   ['message', (d) => fanOut((h) => h.onMessage?.(d as ChatlyMessageEvent))],
   ['conversation', (d) => fanOut((h) => h.onConversation?.(d))],
