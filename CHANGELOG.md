@@ -1,6 +1,21 @@
 # @chatlychat/widget-element — changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-15
+
+- **`controls.getUnreadCount()` and `controls.hasSession()`**, and three event
+  names the widget already emitted and this package could not name:
+  `message.ack`, `message.received` and `unread`. A `<chatly-widget>` consumer
+  got a TYPE ERROR for features the widget honours — the parity gate caught
+  it, in the direction that matters: the widget offers it and the wrapper
+  does not.
+
+  Both reads go through a `read()` helper rather than `dispatch`, which
+  returns nothing by construction, and that helper deliberately does NOT warn
+  when no widget is mounted. `dispatch` warns because a header button wired to
+  `open()` with no widget is a misconfiguration worth saying out loud; a READ
+  before mount is the ordinary path, because an unread badge renders on first
+  paint. Both fall back to the "nothing yet" answer, which is also the safe
+  one: `0`, and `false`.
 
 - `nonce` on `ChatlyEmbedOptions`, and a `nonce` attribute on
   `<chatly-widget>`: the page's CSP nonce, for a host served
@@ -16,9 +31,14 @@
   element is connected on any page with a header-delivered CSP, so an
   attribute read passes every test and returns nothing on the real page.
 
-  **Not sufficient on its own.** The chain has three injection points and this
-  package owns one; `apps/widget-loader` and `apps/widget` have to honour
-  `window.Chatly.nonce` before a strict-CSP page actually renders a chat.
+  **The other two injection points landed on 2026-10-15**, so a strict-CSP
+  page now renders a chat end to end: `apps/widget-loader` stamps the
+  `widget.js` script and the placeholder launcher's `<style>`, and
+  `apps/widget` stamps the deferred chunk scripts and the `<style>` fallback.
+  All three read the value from `window.Chatly.nonce`, which is what this
+  package publishes. (One measured surprise from that work: the widget's
+  primary stylesheet path is `adoptedStyleSheets`, which is CSSOM and not
+  subject to `style-src` at all — the real blocker was always `script-src`.)
 
 ## 0.2.0 — 2026-10-14
 
