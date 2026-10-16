@@ -9,8 +9,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { defineChatlyWidget } from './element.js';
+import { defineChatlyWidget, ELEMENT_EVENTS } from './element.js';
 import { __testing } from './embed.js';
+import { domSuffix, WIDGET_EVENT_NAMES } from './events.js';
 
 let calls: unknown[][] = [];
 
@@ -251,6 +252,19 @@ describe('lifecycle', () => {
 });
 
 describe('events', () => {
+  /** The widget-side subscriptions the element installed, by event name. */
+  function subscriptions(): Map<string, Array<(detail: unknown) => void>> {
+    const byEvent = new Map<string, Array<(detail: unknown) => void>>();
+    for (const call of calls) {
+      if (call[0] === 'on' && typeof call[1] === 'string') {
+        const list = byEvent.get(call[1]) ?? [];
+        list.push(call[2] as (detail: unknown) => void);
+        byEvent.set(call[1], list);
+      }
+    }
+    return byEvent;
+  }
+
   it('re-dispatches widget events as bubbling DOM events', () => {
     document.body.innerHTML = '<chatly-widget public-id="acme-web"></chatly-widget>';
     const seen: unknown[] = [];
@@ -258,11 +272,67 @@ describe('events', () => {
     // are composed — a framework template binds on the element, but a page
     // that wants one listener for the whole app binds up here.
     document.addEventListener('chatly-ready', (e) => seen.push((e as CustomEvent).detail));
-    for (const call of calls) {
-      if (call[0] === 'on' && call[1] === 'ready') {
-        (call[2] as (d: unknown) => void)({ contactId: 'c1', workspaceId: 'w1' });
-      }
+    for (const fire of subscriptions().get('ready') ?? []) {
+      fire({ contactId: 'c1', workspaceId: 'w1' });
     }
     expect(seen).toEqual([{ contactId: 'c1', workspaceId: 'w1' }]);
+  });
+
+  /*
+   * ── The one that would have caught the bug ────────────────────────────
+   *
+   * Three of the widget's twelve events — `message.ack`, `message.received`
+   * and `unread` — were declared in `ChatlyEventName`, subscribable in
+   * TypeScript, and forwarded by nothing. The test above passed throughout,
+   * because it names one event.
+   *
+   * So the expected list is DERIVED, from `WIDGET_EVENT_NAMES`, which is
+   * `Object.keys` of a map the compiler holds exhaustive against
+   * `ChatlyEventName`. A hand-written list of twelve names here would pass
+   * today and rot the next time the widget gains an event — which is exactly
+   * how the nine became stale.
+   *
+   * The length floor is not decoration. If `EVENT_HANDLERS` were ever read as
+   * empty, every assertion in this block would compare two empty sets and
+   * report agreement — the shape this repo's gates have gone blind in twice.
+   */
+  it('forwards every event in the canonical list, derived not listed', () => {
+    expect(WIDGET_EVENT_NAMES.length).toBeGreaterThanOrEqual(12);
+
+    document.body.innerHTML = '<chatly-widget public-id="acme-web"></chatly-widget>';
+    const installed = subscriptions();
+    const seen: Array<[string, unknown]> = [];
+    for (const name of WIDGET_EVENT_NAMES) {
+      const type = `chatly-${domSuffix(name)}`;
+      document.addEventListener(type, (e) => seen.push([type, (e as CustomEvent).detail]));
+    }
+
+    // Subscribed at all: a forwarder that is never installed cannot fire, and
+    // the loop below would then simply see nothing.
+    expect(WIDGET_EVENT_NAMES.filter((name) => !installed.has(name))).toEqual([]);
+
+    for (const name of WIDGET_EVENT_NAMES) {
+      for (const fire of installed.get(name) ?? []) {
+        fire({ from: name });
+      }
+    }
+    expect(seen).toEqual(
+      WIDGET_EVENT_NAMES.map((name) => [`chatly-${domSuffix(name)}`, { from: name }]),
+    );
+  });
+
+  it('exports ELEMENT_EVENTS as exactly the canonical set, both directions', () => {
+    // `ELEMENT_EVENTS` is a published literal tuple, so it is written out
+    // rather than derived — which means nothing but this compares it.
+    expect([...ELEMENT_EVENTS].sort()).toEqual([...WIDGET_EVENT_NAMES].map(domSuffix).sort());
+  });
+
+  it('spells a dotted widget event with a dash, not a dot', () => {
+    // `chatly-message.ack` is a legal DOM event name that Vue cannot bind:
+    // `@chatly-message.ack` reads `ack` as an event modifier and listens for
+    // `chatly-message` instead. Same reason the prefix is not `chatly:`.
+    expect(domSuffix('message.ack')).toBe('message-ack');
+    expect(domSuffix('message.received')).toBe('message-received');
+    expect(ELEMENT_EVENTS.some((name) => name.includes('.'))).toBe(false);
   });
 });

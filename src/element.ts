@@ -28,6 +28,12 @@
  */
 import { controls } from './controls.js';
 import { startWidget, type ChatlyEmbedHandle } from './embed.js';
+import {
+  domSuffix,
+  EVENT_HANDLERS,
+  WIDGET_EVENT_NAMES,
+  type ChatlyDomEventSuffix,
+} from './events.js';
 import { readNonce } from './nonce.js';
 
 import type {
@@ -120,18 +126,31 @@ const OBSERVED = [...ATTRIBUTES.map((a) => a.attribute), INLINE_ATTRIBUTE];
  * name but not in a Vue/Angular/Svelte template binding, which is most of the
  * audience for a custom element. They bubble and are `composed` so a listener
  * on an ancestor (or outside a shadow root the host page put us in) hears them.
+ *
+ * A dot in a widget event name becomes a dash for the same reason, so
+ * `message.ack` is `chatly-message-ack` — see `domSuffix` in `events.ts`.
+ *
+ * Written out rather than derived from `EVENT_HANDLERS`, because this is a
+ * PUBLISHED literal tuple: deriving it would widen `ChatlyElementEvent` to
+ * `string` and a consumer who narrows on it today would stop being able to.
+ * `satisfies` catches a typo or an invented name, and `element.spec.ts`
+ * compares it against the derived set in both directions — which is what
+ * catches an event added to the map and forgotten here.
  */
 export const ELEMENT_EVENTS = [
   'ready',
   'open',
   'close',
   'message',
+  'message-ack',
+  'message-received',
+  'unread',
   'conversation',
   'identified',
   'reset',
   'action',
   'error',
-] as const;
+] as const satisfies readonly ChatlyDomEventSuffix[];
 
 /** `chatly-ready`, `chatly-message`, … — the DOM event names, without prefix. */
 export type ChatlyElementEvent = (typeof ELEMENT_EVENTS)[number];
@@ -401,31 +420,27 @@ function buildElementClass(): CustomElementConstructor {
     /**
      * Re-dispatch every widget event as a DOM event on this element.
      *
-     * Written out rather than generated from `ELEMENT_EVENTS` in a loop: the
-     * handler signatures differ (`onOpen` takes a `ChatlyOpenEvent`, `onReady` a session),
-     * and assigning through a string index would need a cast that defeats the
-     * one thing the compiler is useful for here — noticing that a handler name
-     * in `ChatlyEmbedHandlers` has no `chatly-*` event.
+     * Generated from `EVENT_HANDLERS`, which is a reversal: this was written
+     * out by hand, on the argument that a string index would need a cast and
+     * defeat "the one thing the compiler is useful for here — noticing that a
+     * handler name in `ChatlyEmbedHandlers` has no `chatly-*` event". That
+     * direction is now `UnreachableHandler` in `events.ts`, which checks it
+     * without being able to go stale, and what the hand-written list could
+     * not give was the direction that actually broke: three of the widget's
+     * twelve events had no `chatly-*` event at all.
+     *
+     * The cast on the return is the price, and it is at the boundary of a
+     * loop whose keys come from an exhaustive map.
      */
     #handlers(): ChatlyEmbedHandlers {
-      const emit =
-        (name: ChatlyElementEvent) =>
-        (detail?: unknown): void => {
-          this.dispatchEvent(
-            new CustomEvent(`chatly-${name}`, { detail, bubbles: true, composed: true }),
-          );
+      const handlers: Record<string, (detail?: unknown) => void> = {};
+      for (const name of WIDGET_EVENT_NAMES) {
+        const type = `chatly-${domSuffix(name)}`;
+        handlers[EVENT_HANDLERS[name]] = (detail?: unknown): void => {
+          this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
         };
-      return {
-        onReady: emit('ready'),
-        onOpen: emit('open'),
-        onClose: emit('close'),
-        onMessage: emit('message'),
-        onConversation: emit('conversation'),
-        onIdentified: emit('identified'),
-        onReset: emit('reset'),
-        onAction: emit('action'),
-        onError: emit('error'),
-      };
+      }
+      return handlers as ChatlyEmbedHandlers;
     }
   };
 }

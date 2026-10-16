@@ -292,9 +292,10 @@ export interface ChatlyOpenEvent {
  * arrived while its thread was on screen. `id` is the STORED message's id —
  * the one webhooks and the REST API use — so a host can correlate it.
  *
- * Not a wrapper callback (there is no `onMessageReceived`): subscribe with
- * `Chatly.on('message.received', …)`. Declared here so that subscriber has a
- * type to cast to.
+ * `onMessageReceived` is the wrapper callback. This comment used to say there
+ * was none and that `Chatly.on('message.received', …)` was the only route,
+ * which was true and was the bug: the event was subscribable in TypeScript
+ * and reached neither wrapper. See `events.ts`.
  */
 export interface ChatlyMessageReceivedEvent {
   id: string;
@@ -304,10 +305,42 @@ export interface ChatlyMessageReceivedEvent {
 }
 
 /**
+ * What a `message.ack` event carries: the server stored a message the VISITOR
+ * sent.
+ *
+ * `id` is the persisted id and `localId` the placeholder the thread showed
+ * while the message was in flight, so a host mirroring the thread can swap
+ * one for the other. `conversationId` is never null here — a stored message
+ * has a thread. It fires only on acceptance; a send that failed announces
+ * nothing.
+ */
+export interface ChatlyMessageAckEvent {
+  id: string;
+  localId: string;
+  conversationId: string;
+}
+
+/**
+ * What an `unread` event carries: agent and bot messages the visitor has not
+ * had on screen, across their threads.
+ *
+ * Fires the first time the total is known as well as on every change, and is
+ * replayed to a late subscriber — so a badge can render from this alone and
+ * never has to poll `getUnreadCount()`.
+ */
+export interface ChatlyUnreadEvent {
+  count: number;
+}
+
+/**
  * Subscribers a wrapper forwards to.
  *
  * Every one is optional and every one is called with whatever the widget
  * emitted — these are not re-typed payloads, they are the widget's own.
+ *
+ * One member per `ChatlyEventName`, and `events.ts` is what holds that true
+ * in both directions: a new event with no handler here is a type error there,
+ * and so is a handler here that no event reaches.
  */
 export interface ChatlyEmbedHandlers {
   onReady?: (session: ChatlySession) => void;
@@ -315,6 +348,17 @@ export interface ChatlyEmbedHandlers {
   onOpen?: (detail: ChatlyOpenEvent) => void;
   onClose?: () => void;
   onMessage?: (message: ChatlyMessageEvent) => void;
+  /** The server stored a message the visitor sent (`message.ack`). */
+  onMessageAck?: (detail: ChatlyMessageAckEvent) => void;
+  /**
+   * An agent or bot message arrived while its thread was on screen
+   * (`message.received`). `onMessage` does NOT fire for these — it has only
+   * ever meant "the visitor sent something" — and a reply that lands while
+   * the panel is closed is reported by `onUnread`.
+   */
+  onMessageReceived?: (detail: ChatlyMessageReceivedEvent) => void;
+  /** The unread total changed, and once as soon as it is known (`unread`). */
+  onUnread?: (detail: ChatlyUnreadEvent) => void;
   onConversation?: (detail: unknown) => void;
   onIdentified?: (session: ChatlySession) => void;
   onReset?: (detail: unknown) => void;

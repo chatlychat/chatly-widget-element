@@ -82,6 +82,10 @@ view, whether or not they ever open the chat. `lazy` changes that:
 | `interaction`        | as above, plus a pre-warm on the visitor's first interaction with the page                                 |
 | `manual`             | nothing is painted or fetched until something calls `Chatly('load')`                                       |
 
+Anything else — `lazy="eventually"` — loads **eagerly**, which is today's
+behaviour and the safe direction, and warns by name. A typo that silently
+disabled lazy loading would look exactly like a lazy mode that does not work.
+
 The stand-in launcher is drawn by `loader.js`, which is already on the page
 and ~2KB. It is a real `<button>` in a shadow root, so it is keyboard
 reachable and your page's CSS cannot reshape it, and its click rides the same
@@ -159,11 +163,21 @@ Setting a property **before** the element is defined or upgraded works too,
 which matters because every property-binding template engine can produce that
 ordering.
 
-`chat.controls` is the widget's post-boot method object — `open`, `close`,
-`toggle`, `identify`, `setUser`, `setCustomAttributes`,
+`chat.controls` is the widget's post-boot method object, so a reference to the
+element is enough to drive the chat. It is also exported on its own as
+`controls`. Nineteen methods — the widget's `ChatlyApi` minus `init` and
+`destroy` (the element owns the lifecycle) and minus `on`/`off`, whose job
+`subscribe()` does below:
+
+`open`, `close`, `toggle`, `identify`, `setUser`, `setCustomAttributes`,
 `deleteCustomAttribute`, `setLabel`, `removeLabel`, `setLocale`, `track`,
-`registerPushToken`, `reset` — so a reference to the element is enough to
-drive the chat. It is also exported on its own as `controls`.
+`registerPushToken`, `reset`, `setStorageConsent`, `getUnreadCount`,
+`hasSession`, `startConversation`, `setContext`, `reportAction`.
+
+Two of those answer rather than act, and both are safe before the widget has
+mounted: `getUnreadCount()` is `0` and `hasSession()` is `false` until there is
+a widget to ask. Pair `getUnreadCount()` with the `unread` event rather than
+polling it.
 
 `init` and `destroy` are deliberately absent: the element owns the lifecycle,
 and calling them behind its back leaves it believing a widget is mounted that
@@ -171,13 +185,26 @@ is not.
 
 ## Events
 
-The element re-dispatches every widget event as a DOM `CustomEvent`, with the
-widget's payload on `detail`. They bubble and are `composed`, so a listener on
-an ancestor hears them.
+The element re-dispatches **all twelve** of the widget's events as a DOM
+`CustomEvent`, with the widget's payload on `detail`. They bubble and are
+`composed`, so a listener on an ancestor hears them.
 
 `chatly-ready`, `chatly-open`, `chatly-close`, `chatly-message`,
+`chatly-message-ack`, `chatly-message-received`, `chatly-unread`,
 `chatly-conversation`, `chatly-identified`, `chatly-reset`, `chatly-action`,
-`chatly-error`.
+`chatly-error` — exported as `ELEMENT_EVENTS`.
+
+A dot in the widget's own event name becomes a dash, so `message.ack` is
+`chatly-message-ack`. Same reason the prefix is `chatly-` and not `chatly:`:
+Vue reads `@chatly-message.ack` as the event `chatly-message` with a modifier
+called `ack`, and the listener never fires.
+
+`chatly-ready` and `chatly-unread` are replayed to a late subscriber by the
+widget, and the element subscribes in `connectedCallback` — so the replay is
+dispatched then. A template binding (`@chatly-unread`) is attached before
+that and sees it; an `addEventListener` call made after the element is
+connected can miss it, and should read `controls.getUnreadCount()` once for
+its initial value.
 
 ```html
 <chatly-widget public-id="acme-web"></chatly-widget>
@@ -191,6 +218,32 @@ an ancestor hears them.
 
 Hyphenated, not `chatly:message`: a colon is legal in an event name but not in
 a Vue, Angular or Svelte template binding.
+
+Until `0.4.0` three of them had no `chatly-*` form at all — `message.ack`,
+`message.received` and `unread` were named by `ChatlyEventName`, so
+`subscribe()` reached them, and the element forwarded nine. If you worked
+around that, the workaround still works and is no longer needed.
+
+`subscribe()` is the other way in, and the one to use from code that is not a
+listener on the element — it goes through `Chatly.on` directly:
+
+```js
+import { subscribe } from '@chatlychat/widget-element';
+
+const off = subscribe('unread', (detail) => paint(detail.count));
+```
+
+It hands back the unsubscribe, which matters: `Chatly.off` only removes a
+handler it can match by identity, so a consumer who builds a fresh closure for
+each call leaks a subscriber on every mount. The plain `window` mirror
+(`chatly:unread`) carries all twelve too, if you would rather not import
+anything.
+
+To wire all twelve without copying a list out of this README, iterate the map
+the forwarding is derived from — `EVENT_HANDLERS` (widget event → handler
+name) and `WIDGET_EVENT_NAMES`, both exported since `0.4.0`. They are the
+single source the element, the React wrapper and the type checker all read, so
+a list built from them cannot disagree with what is actually forwarded.
 
 ## Inline mounting
 

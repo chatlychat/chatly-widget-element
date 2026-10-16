@@ -38,6 +38,7 @@
  * not both.
  */
 import { resetConflictWarning, warnOnConflict } from './conflict-warning.js';
+import { EVENT_HANDLERS, WIDGET_EVENT_NAMES } from './events.js';
 import { injectLoader, loaderInjected, resetLoaderInjection } from './inject-loader.js';
 import { warnLateBootOption } from './lazy.js';
 import { sameOptions, sameValue } from './same-value.js';
@@ -49,9 +50,6 @@ import type {
   ChatlyIdentity,
   ChatlyInitOptions,
   ChatlyLazyMode,
-  ChatlyMessageEvent,
-  ChatlyOpenEvent,
-  ChatlySession,
 } from './types.js';
 
 /** Where we serve the loader. Override only to serve it yourself — see the type. */
@@ -486,24 +484,36 @@ function release(claim: object): void {
  * re-init re-subscribes. A closure created per boot would leak a subscriber
  * on every mount/unmount cycle and fire every callback N times after N
  * mounts — the kind of bug that only shows up after a few route changes.
+ *
+ * ── Derived, since 2026-10-16 ──────────────────────────────────────────
+ *
+ * This was nine entries written out by hand, each asserting its own payload
+ * (`d as ChatlySession` and so on). Those assertions were plumbing: the
+ * payload a consumer sees is declared on `ChatlyEmbedHandlers`, which is
+ * where it belongs and where the parity gate compares it. What the hand-
+ * written list could not do is be COMPLETE — the widget's twelve events had
+ * nine forwarders, and `message.ack`, `message.received` and `unread` were
+ * subscribable in TypeScript and reached nothing. Built from
+ * `EVENT_HANDLERS`, every event has a forwarder by construction.
  */
-const FORWARDERS: ReadonlyArray<[ChatlyEventName, (detail: unknown) => void]> = [
-  // The asserted payloads are the widget's own — `SessionSnapshot` for
-  // ready/identified, `{ id, body, authorType, conversationId }` for message,
-  // `{ conversationId }` for open — mirrored in
-  // `types.ts` and held there by the parity gate. The rest stay `unknown`
-  // because the widget's own types do: re-typing them here would be inventing
-  // a contract rather than forwarding one.
-  ['ready', (d) => fanOut((h) => h.onReady?.(d as ChatlySession))],
-  ['open', (d) => fanOut((h) => h.onOpen?.(d as ChatlyOpenEvent))],
-  ['close', () => fanOut((h) => h.onClose?.())],
-  ['message', (d) => fanOut((h) => h.onMessage?.(d as ChatlyMessageEvent))],
-  ['conversation', (d) => fanOut((h) => h.onConversation?.(d))],
-  ['identified', (d) => fanOut((h) => h.onIdentified?.(d as ChatlySession))],
-  ['reset', (d) => fanOut((h) => h.onReset?.(d))],
-  ['action', (d) => fanOut((h) => h.onAction?.(d))],
-  ['error', (d) => fanOut((h) => h.onError?.(d))],
-];
+const FORWARDERS: ReadonlyArray<[ChatlyEventName, (detail: unknown) => void]> =
+  WIDGET_EVENT_NAMES.map((event): [ChatlyEventName, (detail: unknown) => void] => [
+    event,
+    (detail) =>
+      fanOut((h) => {
+        /*
+         * The one cast, at the one place the event name is a variable.
+         *
+         * The handler signatures differ per event and the detail is the
+         * widget's own payload forwarded untouched, so there is nothing for
+         * the compiler to check here that it has not already checked on
+         * `ChatlyEmbedHandlers` and in `EVENT_HANDLERS`. `onClose` takes no
+         * argument and is called with one, which JavaScript ignores.
+         */
+        const handler = h[EVENT_HANDLERS[event]] as ((d: unknown) => void) | undefined;
+        handler?.(detail);
+      }),
+  ]);
 
 /**
  * Call one handler on every current claim.

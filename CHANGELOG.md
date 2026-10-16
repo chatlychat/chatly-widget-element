@@ -1,5 +1,36 @@
 # @chatlychat/widget-element — changelog
 
+## 0.4.0 — 2026-10-16
+
+- **All twelve widget events are forwarded.** `message.ack`,
+  `message.received` and `unread` were named by `ChatlyEventName` in 0.3.0 —
+  so `subscribe()` reached them — and had no `chatly-*` DOM event and no
+  `ChatlyEmbedHandlers` callback, which meant `<chatly-widget>` and
+  `<ChatlyWidget />` could not see them at all. New DOM events
+  `chatly-message-ack`, `chatly-message-received` and `chatly-unread`, new
+  handlers `onMessageAck`, `onMessageReceived` and `onUnread`, and the payload
+  types `ChatlyMessageAckEvent` and `ChatlyUnreadEvent`.
+
+  A dot becomes a dash, because Vue reads `@chatly-message.ack` as the event
+  `chatly-message` with a modifier called `ack` — the same reason the prefix
+  has always been `chatly-` and not `chatly:`.
+
+  If you worked around it by reaching past this package — `subscribe()` for
+  the three, or `window.Chatly.on('unread', …)` on the global — that
+  workaround can go. Nothing about it was wrong and nothing about it breaks;
+  the DOM event and the handler are simply there now.
+
+- The forwarding chain is derived from one map instead of four hand-written
+  lists. `EVENT_HANDLERS` and `WIDGET_EVENT_NAMES` are exported; the map is
+  `satisfies Record<ChatlyEventName, keyof ChatlyEmbedHandlers>`, so a new
+  widget event is a compile error here until it is wired, and a handler no
+  event reaches is a compile error too. That is what drifted: four lists, nine
+  entries each, and nothing comparing them to the twelve.
+
+- `ChatlyMessageAckEvent` and `ChatlyUnreadEvent` are exported from the
+  package root, beside the `ChatlyMessageReceivedEvent` that was already
+  there and had no handler to be the payload of.
+
 ## 0.3.0 — 2026-10-15
 
 - **`controls.getUnreadCount()` and `controls.hasSession()`**, and three event

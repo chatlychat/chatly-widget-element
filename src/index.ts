@@ -46,6 +46,15 @@ export {
   type ChatlyElementEvent,
   type ChatlyWidgetElement,
 } from './element.js';
+/**
+ * Every widget event, and the wrapper callback each one reaches.
+ *
+ * Exported because it is the answer to "which events are forwarded" in a form
+ * that cannot disagree with the code — a host that wants to wire all of them
+ * can iterate it rather than copy a list out of the README. See `events.ts`
+ * for why this is the single source.
+ */
+export { EVENT_HANDLERS, WIDGET_EVENT_NAMES, type ChatlyHandlerName } from './events.js';
 export type {
   ChatlyBehavior,
   ChatlyCopy,
@@ -55,6 +64,7 @@ export type {
   ChatlyIdentity,
   ChatlyInitOptions,
   ChatlyLazyMode,
+  ChatlyMessageAckEvent,
   ChatlyMessageEvent,
   ChatlyMessageReceivedEvent,
   ChatlyOpenEvent,
@@ -62,4 +72,5 @@ export type {
   ChatlyQuip,
   ChatlySession,
   ChatlyTheme,
+  ChatlyUnreadEvent,
 } from './types.js';
