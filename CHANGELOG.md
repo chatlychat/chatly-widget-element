@@ -1,5 +1,36 @@
 # @chatlychat/widget-element — changelog
 
+## 0.5.0 — 2026-10-16
+
+### Added
+
+- `controls.setOffset({ x?, y?, panelY? })` and `ChatlyTheme.panelOffsetY`,
+  mirroring the widget surface. Unlike `mount`/`unmount` these are on
+  `controls` with no parity exemption: they move inline properties on an
+  already-mounted element, close nothing and emit no lifecycle event, so a
+  second consumer calling them cannot desynchronise the first's view of the
+  mount.
+
+### Also in this release
+
+- Docs only, and the docs were wrong in a way a customer reproduced (NCH-18).
+  The `lazy` table said `manual` fetches nothing until `Chatly('load')` and
+  said nothing about the **returning chatter** every other mode fetches for at
+  once; the guide stated that preload unconditionally. Both rows now carry the
+  exception, and the README has the by-hand recipe for `manual`.
+
+- `ChatlyLazyMode`'s docblock no longer offers `<ChatlyLauncher>` as the
+  example of a `'manual'` host: that component defaults to `'launcher'` with
+  `theme.hideLauncher` as of `@chatlychat/widget-react`'s next release.
+
+- `controls.hasSession()` documents when it starts answering. It read "`false`
+  before the widget mounts", which undersold it in one direction and overfed
+  it in the other: `loader.js` defines it on the shim before `widget.js`
+  exists, which is what makes a `'manual'` preload possible — but the loader
+  tag is `async`, so an effect in the same commit as the mount still gets
+  `false`. That is why `<ChatlyLauncher>` preloads by choosing a `lazy` mode
+  rather than by calling `hasSession()` and `load()`.
+
 ## 0.4.0 — 2026-10-16
 
 - **All twelve widget events are forwarded.** `message.ack`,

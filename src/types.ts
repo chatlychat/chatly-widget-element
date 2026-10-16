@@ -67,6 +67,8 @@ export interface ChatlyTheme {
   position?: 'left' | 'right';
   offsetX?: number;
   offsetY?: number;
+  /** Panel bottom edge, measured up from `offsetY`. For a custom launcher. */
+  panelOffsetY?: number;
 
   headerStyle?: 'gradient' | 'solid' | 'plain';
   headerGradient?: [string, string];
@@ -387,13 +389,26 @@ export interface ChatlyEmbedHandlers {
  *     visitor ever opens the chat.
  *   - `true` / `'launcher'` — fetch it when a visitor reaches for the chat.
  *     The loader paints a stand-in launcher that matches the real one and
- *     queues the click, so the panel opens as soon as the bundle lands.
+ *     queues the click, so the panel opens as soon as the bundle lands. A
+ *     RETURNING chatter — one this browser already holds a conversation for,
+ *     `chatly:vr:<publicId>` — skips the wait: the bundle is fetched at once,
+ *     so a reply that arrived while they were away can show its badge.
  *   - `'interaction'` — as `'launcher'`, and additionally pre-warm on the
  *     visitor's first interaction with the page. Suppressed under
- *     `prefers-reduced-data` or the browser's data saver.
+ *     `prefers-reduced-data` or the browser's data saver; the
+ *     returning-chatter fetch is not, because it is not a guess.
  *   - `'manual'` — fetch nothing and paint nothing until something calls
- *     `Chatly('load')`. For a host page that renders its own launcher, which
- *     is what `<ChatlyLauncher>` in `@chatlychat/widget-react` does.
+ *     `Chatly('load')`, **not even for a returning chatter**. That exception
+ *     is the mode's whole point, so it is the mode to pick when you want to
+ *     decide for yourself — ask `Chatly.hasSession()`, which the loader's
+ *     stub answers before the bundle exists, and call `Chatly('load')` if
+ *     you like the answer.
+ *
+ * `<ChatlyLauncher>` in `@chatlychat/widget-react` defaults to `'launcher'`
+ * with `theme.hideLauncher`, which is the same thing for a first-time visitor
+ * (no placeholder, nothing fetched until the host's button is used) and the
+ * returning-chatter fetch for everyone else. It used to default to
+ * `'manual'`, which made that reply invisible.
  *
  * Read ONCE, when `loader.js` evaluates. Changing it afterwards cannot
  * un-fetch a bundle, so the wrapper warns rather than pretending.

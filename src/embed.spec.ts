@@ -375,4 +375,18 @@ describe('controls', () => {
     expect(argsFor('open')).toEqual([['help']]);
     expect(argsFor('track')).toEqual([['pricing_viewed', { plan: 'pro' }]]);
   });
+
+  /*
+   * NCH-22. On `controls` rather than exempted from the parity gate the way
+   * `mount` is: this moves inline properties on an element that is already
+   * mounted and touches nothing `embed.ts`'s reference count owns. The
+   * assertion is on what was SENT — the method name and the object, verbatim
+   * — because a wrapper that forwarded `{ panelY }` as `panelOffsetY` would
+   * pass any test written against a canned reply.
+   */
+  it('forwards setOffset verbatim, so a custom launcher can move the panel', () => {
+    startWidget({}, BASE);
+    controls.setOffset({ y: 120, panelY: 60 });
+    expect(argsFor('setOffset')).toEqual([[{ y: 120, panelY: 60 }]]);
+  });
 });

@@ -1,6 +1,6 @@
 {
   "name": "@chatlychat/widget-element",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "The Chatly chat widget as a custom element (<chatly-widget>), plus the embed lifecycle framework wrappers share. Zero dependencies.",
   "license": "MIT",
   "homepage": "https://github.com/chatlychat/chatly-widget-element#readme",

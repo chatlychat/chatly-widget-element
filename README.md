@@ -75,12 +75,34 @@ view, whether or not they ever open the chat. `lazy` changes that:
 <chatly-widget public-id="acme-web" lazy="manual"></chatly-widget>
 ```
 
-| value                | what happens                                                                                               |
-| -------------------- | ---------------------------------------------------------------------------------------------------------- |
-| absent / `false`     | the bundle is fetched on page load, as it always has been                                                  |
-| present / `launcher` | the loader paints a stand-in launcher matching your theme; using it fetches the bundle and opens the panel |
-| `interaction`        | as above, plus a pre-warm on the visitor's first interaction with the page                                 |
-| `manual`             | nothing is painted or fetched until something calls `Chatly('load')`                                       |
+| value                | what happens                                                                                                                                                    |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| absent / `false`     | the bundle is fetched on page load, as it always has been                                                                                                       |
+| present / `launcher` | the loader paints a stand-in launcher matching your theme; using it fetches the bundle and opens the panel. A returning chatter's bundle is fetched immediately |
+| `interaction`        | as above, plus a pre-warm on the visitor's first interaction with the page                                                                                      |
+| `manual`             | nothing is painted or fetched until something calls `Chatly('load')` — **returning chatters are not preloaded either**                                          |
+
+A **returning chatter** is a visitor this browser already holds a conversation
+for (`chatly:vr:<publicId>`). Every mode but `manual` fetches the bundle for
+them as the loader evaluates, with no click: the unread badge cannot be drawn
+without the bundle, so a reply that arrived while they were away would
+otherwise stay invisible. `manual` leaves that decision to you —
+`Chatly.hasSession()` is the same test, and `loader.js` answers it before the
+bundle exists:
+
+```html
+<script>
+  var a = document.createElement('script');
+  a.async = 1;
+  a.src = 'https://widget.chatlychat.com/loader.js';
+  // AFTER loader.js has evaluated: it is what defines `hasSession`, and the
+  // tag is async, so asking any earlier gets `undefined`.
+  a.onload = function () {
+    if (window.Chatly.hasSession()) window.Chatly('load');
+  };
+  document.head.appendChild(a);
+</script>
+```
 
 Anything else — `lazy="eventually"` — loads **eagerly**, which is today's
 behaviour and the safe direction, and warns by name. A typo that silently
@@ -176,8 +198,13 @@ element is enough to drive the chat. It is also exported on its own as
 
 Two of those answer rather than act, and both are safe before the widget has
 mounted: `getUnreadCount()` is `0` and `hasSession()` is `false` until there is
-a widget to ask. Pair `getUnreadCount()` with the `unread` event rather than
+something to ask. Pair `getUnreadCount()` with the `unread` event rather than
 polling it.
+
+`hasSession()` is answerable earlier than the rest — `loader.js` defines it on
+the shim before `widget.js` exists, so a `lazy="manual"` page can use it to
+decide. But not immediately: the loader tag is `async`, so a read in the same
+tick as the mount still gets `false`. Ask on an interaction, or from `ready`.
 
 `init` and `destroy` are deliberately absent: the element owns the lifecycle,
 and calling them behind its back leaves it believing a widget is mounted that

@@ -60,6 +60,22 @@ export const controls = {
    */
   setStorageConsent: (granted: boolean): void => dispatch('setStorageConsent', granted),
   /**
+   * Move the widget and its panel after boot (NCH-22).
+   *
+   * `x`/`y` move the launcher's corner offsets; `panelY` moves the panel's
+   * bottom edge up from them — what a page drawing its OWN launcher button
+   * needs, since `hideLauncher` otherwise lands the panel on top of it. The
+   * declarative spelling is `theme.panelOffsetY`.
+   *
+   * On `controls` and not exempted from the parity gate, unlike `mount`: this
+   * touches nothing the reference count in `embed.ts` owns. It moves two
+   * inline properties on an element that is already mounted, closes nothing,
+   * and emits no lifecycle event — so a second `<ChatlyWidget>` consumer
+   * calling it cannot desynchronise the first one's view of the mount.
+   */
+  setOffset: (offset: { x?: number; y?: number; panelY?: number }): void =>
+    dispatch('setOffset', offset),
+  /**
    * Unread replies waiting for this visitor, across their threads (W-06).
    *
    * `0` when no widget is mounted yet, which is the ordinary case for a badge
@@ -73,7 +89,18 @@ export const controls = {
    *
    * What lazy mode tests before deciding to load eagerly, exposed so a host
    * page can make the same decision — showing "continue your conversation"
-   * rather than "chat with us", say. `false` before the widget mounts.
+   * rather than "chat with us", say.
+   *
+   * **`false` until `loader.js` has evaluated**, which is later than it
+   * sounds and is the one trap on this method. `loader.js` is injected
+   * `async` by `startWidget`, and it is what defines `Chatly.hasSession` on
+   * the shim (the bundle replaces it with its own read of the same
+   * `chatly:vr:<publicId>` key later). So a React effect that runs in the
+   * same commit as the mount asks a question nothing can answer yet and gets
+   * the fallback — which is why `<ChatlyLauncher>` preloads for a returning
+   * chatter by choosing a `lazy` MODE the loader acts on itself, rather than
+   * by calling this and `load()`. Pair it with the `ready` event, or with a
+   * host button the visitor reaches some time after the page loaded.
    */
   hasSession: (): boolean => read('hasSession', false),
   /**
