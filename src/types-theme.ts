@@ -172,7 +172,19 @@ export interface ChatlyTheme {
   launcherPing?: boolean;
   launcherIdleAnimation?: 'none' | 'wiggle' | 'pulse' | 'bounce';
 
-  colorScheme?: 'light' | 'dark' | 'auto';
+  /**
+   * `'host'` follows the PAGE's own light/dark switch (see `hostScheme`) and
+   * falls back to `'auto'` until it has read it. Embed snippet / `setTheme`
+   * only: the channel schema does not accept it yet.
+   */
+  colorScheme?: 'light' | 'dark' | 'auto' | 'host';
+  /**
+   * Where `colorScheme: 'host'` looks. `on` is a CSS selector (default
+   * `html`); `attribute` the one to read (default: `data-theme`, then `class`,
+   * then the computed CSS `color-scheme`). A value containing `dark` or
+   * `light` decides; both or neither means "ask the OS".
+   */
+  hostScheme?: { on?: string; attribute?: string };
 
   dangerColor?: string;
   successColor?: string;
@@ -254,7 +266,6 @@ export interface ChatlyTheme {
   darkTheme?: ChatlyThemeOverlay;
   inlineTheme?: ChatlyThemeOverlay;
 }
-
 
 /*
  * ═══ THE FOUR SHAPES BELOW MOVED HERE ON 2026-10-25 ═══════════════════════

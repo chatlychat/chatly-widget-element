@@ -116,6 +116,7 @@ export interface ChatlyIdentity {
 import type { ChatlyIdentityAnswer, ChatlyIdentityProvider } from './identity-loop.js';
 import type {
   ChatlyAppearanceEvent,
+  ChatlyErrorEvent,
   ChatlyEventName,
   ChatlyMessageAckEvent,
   ChatlyMessageEvent,
@@ -153,6 +154,7 @@ import type {
  */
 export type {
   ChatlyAppearanceEvent,
+  ChatlyErrorEvent,
   ChatlyEventName,
   ChatlyMessageAckEvent,
   ChatlyMessageEvent,
@@ -365,7 +367,7 @@ export interface ChatlyEmbedHandlers {
    * source, and it fires for a refused origin, a dead network and a 5xx —
    * none of which a host page can do anything about by crashing.
    */
-  onError?: (detail: unknown) => void;
+  onError?: (detail: ChatlyErrorEvent) => void;
   /**
    * Which per-audience profile matched. `{ profile, matched }`.
    *

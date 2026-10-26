@@ -426,15 +426,14 @@ function reconcile(): void {
     warnLateBootOption('lazy', state.lazy, next.lazy);
     state.lazy = next.lazy;
   }
-  // A nonce is per-response, so within one document this should never fire.
-  // A page that rotates it mid-life wants already-evaluated scripts
-  // re-stamped, which cannot happen; refused loudly rather than stored.
+  // Per-response, so within one document this should never fire. A page
+  // rotating it mid-life wants already-evaluated scripts re-stamped, which
+  // cannot happen; refused loudly rather than stored.
   if (next.nonce !== state.nonce) {
     warnLateBootOption('nonce', state.nonce, next.nonce);
     state.nonce = next.nonce;
   }
-
-  // `theme`: a live `setTheme`, unless a key was dropped — `theme-delta.ts`.
+  // Live `setTheme` unless a key was dropped — see `theme-delta.ts`.
   const theme = themeDelta(active.theme, next.theme);
   const initChanged =
     theme.removed ||

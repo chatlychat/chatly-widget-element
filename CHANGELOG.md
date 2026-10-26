@@ -1,5 +1,34 @@
 # @chatlychat/widget-element — changelog
 
+## 0.24.0 — 2026-10-26
+
+### Added
+
+- **`theme.colorScheme: 'host'`** — the widget follows the PAGE's own
+  light/dark switch, so a site with a theme toggle needs no `MutationObserver`
+  of its own. It reads `<html>`'s `data-theme`, then `class`, then the computed
+  CSS `color-scheme`; point it elsewhere with
+  `theme.hostScheme: { on: '#app', attribute: 'data-mode' }`. A value
+  containing `dark` or `light` decides; both (`light dark`) or neither means
+  "ask the OS", which is also what happens until the page has been read.
+
+  Embed snippet / props only. The channel schema is
+  `z.enum(['light','dark','auto'])`, so a workspace cannot select it in the
+  dashboard yet, and `setTheme({ colorScheme: 'host' })` is not honoured — an
+  explicit `light` or `dark` pushed live still wins.
+
+- **`onError` is typed.** It was `(detail: unknown) => void`, so a host could
+  not get even `message` typed. It is `ChatlyErrorEvent` now, exported from the
+  package root.
+
+  When `init` fails the event also carries `apiCode` (the server's error code,
+  or null if no response arrived), `operation: 'init'` and `retryable`.
+  `code` is UNCHANGED and still carries its documented values
+  (`identity_rejected`, `identity_missing_hash`, `init_failed`) — the server's
+  code went in a new field rather than replacing it, because redefining `code`
+  would break any host switching on those. Misuse warnings still carry only
+  `message`.
+
 ## 0.23.0 — 2026-10-26
 
 **A changed `theme` is applied live, not by re-initialising.** `<chatly-widget theme>` and `<ChatlyWidget theme>` used to destroy and remount on any theme change, so a host computing its theme from light/dark state closed an open panel on the next render after a toggle. A changed value now goes through `setTheme` (a merge): the panel repaints in place with no network request.

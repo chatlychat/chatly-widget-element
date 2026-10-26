@@ -85,6 +85,7 @@ export type {
   ChatlyMessageAckEvent,
   ChatlyMessageEvent,
   ChatlyMessageReceivedEvent,
+  ChatlyErrorEvent,
   ChatlyOpenEvent,
   ChatlyQuickLink,
   ChatlyQuip,

@@ -161,3 +161,23 @@ export interface ChatlyUnreadEvent {
 export interface ChatlyAppearanceEvent {
   scheme: 'light' | 'dark';
 }
+
+/**
+ * The `error` event. `message` is set for a misuse the widget warned about
+ * (a call made before `init`, a handler that is not a function); the other
+ * fields are set when `init` was refused or could not reach the API.
+ *
+ * `code` is the widget's own grade (`identity_rejected`, `identity_missing_hash`
+ * or `init_failed`); `apiCode` is the server's code (`forbidden`, ...) and is
+ * null when no response arrived. Only `init` reports today: a failed send or
+ * identify is shown in the thread and does not fire this event.
+ */
+export interface ChatlyErrorEvent {
+  message?: string;
+  code?: 'identity_rejected' | 'identity_missing_hash' | 'init_failed';
+  apiCode?: string | null;
+  status?: number | null;
+  operation?: 'init';
+  /** Whether asking again could succeed (network, 5xx, 429). */
+  retryable?: boolean;
+}
