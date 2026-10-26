@@ -154,14 +154,54 @@ describe('prop changes', () => {
     expect(argsFor('init')).toHaveLength(1);
   });
 
-  it('re-inits when the theme actually changes', () => {
-    const handle = startWidget({}, { ...BASE, theme: { primaryColor: '#111111' } });
-    handle.update({ ...BASE, theme: { primaryColor: '#222222' } });
-    expect(argsFor('init')).toHaveLength(2);
-    expect(argsFor('init')[1]?.[0]).toEqual({
-      publicId: 'acme-web',
-      theme: { primaryColor: '#222222' },
+  it('applies a changed theme value live with setTheme, without re-initialising', () => {
+    const handle = startWidget(
+      {},
+      { ...BASE, theme: { primaryColor: '#111111', borderRadius: 8 } },
+    );
+    handle.update({ ...BASE, theme: { primaryColor: '#222222', borderRadius: 8 } });
+    expect(argsFor('init')).toHaveLength(1);
+    expect(argsFor('setTheme')).toEqual([[{ primaryColor: '#222222' }]]);
+    // Added keys are changes too, and a nested object is sent whole.
+    handle.update({
+      ...BASE,
+      theme: { primaryColor: '#222222', borderRadius: 8, darkTheme: { background: '#000000' } },
     });
+    expect(argsFor('init')).toHaveLength(1);
+    expect(argsFor('setTheme')[1]).toEqual([{ darkTheme: { background: '#000000' } }]);
+  });
+
+  it('re-inits when a theme key is REMOVED, because setTheme cannot unset one', () => {
+    const handle = startWidget(
+      {},
+      { ...BASE, theme: { primaryColor: '#111111', borderRadius: 8 } },
+    );
+    handle.update({ ...BASE, theme: { borderRadius: 8 } });
+    expect(argsFor('init')).toHaveLength(2);
+    expect(argsFor('init')[1]?.[0]).toEqual({ publicId: 'acme-web', theme: { borderRadius: 8 } });
+    expect(argsFor('setTheme')).toHaveLength(0);
+    // An explicit `undefined` is the same request as an absent key.
+    handle.update({ ...BASE, theme: { borderRadius: undefined } });
+    expect(argsFor('init')).toHaveLength(3);
+  });
+
+  it('re-inits when the whole theme is dropped', () => {
+    const handle = startWidget({}, { ...BASE, theme: { primaryColor: '#111111' } });
+    handle.update({ ...BASE });
+    expect(argsFor('init')).toHaveLength(2);
+  });
+
+  it('re-asserts live-set theme values after a later re-init', () => {
+    // The widget's override layer survives `init` and outranks it, so a
+    // stale value from an earlier setTheme would mask the new init theme.
+    const handle = startWidget(
+      {},
+      { ...BASE, theme: { primaryColor: '#111111', borderRadius: 8 } },
+    );
+    handle.update({ ...BASE, theme: { primaryColor: '#222222', borderRadius: 8 } });
+    handle.update({ ...BASE, theme: { primaryColor: '#333333' } });
+    expect(argsFor('init')).toHaveLength(2);
+    expect(argsFor('setTheme')[1]).toEqual([{ primaryColor: '#333333' }]);
   });
 
   it('identifies instead of re-initialising when the visitor appears', () => {

@@ -70,13 +70,15 @@ drop a live conversation on every slow auth check. Ignored when
 
 Attributes are live: change one and the element applies it. A changed
 `visitor` becomes an `identify()` and a changed `locale` a `setLocale()` —
-neither re-mounts the widget. A change to anything else re-initialises it,
-which closes an open panel — and it only happens when a value really changed.
+neither re-mounts the widget, and neither does a changed `theme` value: it is
+applied with `setTheme()`, which repaints an open panel in place with no
+network request. A change to anything else re-initialises it, which closes an
+open panel — and it only happens when a value really changed.
 
-For a `theme` change there is a better route: `chat.controls.setTheme({
-colorScheme: 'dark' })` repaints an open panel in place with no network
-request. The attribute still re-initialises, because it describes a whole
-theme and a merge cannot un-apply a key you removed.
+The one `theme` change that still re-initialises is a REMOVED top-level key
+(or `undefined`), because a merge cannot un-apply one. Nested objects such as
+`darkTheme` are sent whole, so dropping a key inside one is live. A value you
+had changed live and then removed keeps its last value until a page load.
 
 ### `lazy` — deferring the bundle
 

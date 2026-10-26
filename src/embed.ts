@@ -41,6 +41,7 @@ import { loaderInjected, resetLoaderInjection } from './inject-loader.js';
 import { warnLateBootOption } from './lazy.js';
 import { drainPending, queueUntilMounted, resetPending } from './pending-calls.js';
 import { sameOptions, sameValue } from './same-value.js';
+import { themeDelta } from './theme-delta.js';
 
 import type {
   ChatlyEmbedHandlers,
@@ -126,6 +127,8 @@ interface MountState {
    * itself has. See `identity-loop.ts`.
    */
   identity: IdentityLoop | null;
+  /** A live `setTheme` has run: the widget's override layer survives `init`. */
+  themePushed?: boolean;
   /** Pending deferred teardown, cancelled by a remount. See `release`. */
   teardown: ReturnType<typeof setTimeout> | null;
   /** Takes down lazy mode's placeholder and listeners. See `armLoaderFetch`. */
@@ -371,15 +374,13 @@ export function read<T>(method: string, fallback: T): T {
 /**
  * Apply a claim's new props.
  *
- * Three outcomes, and which one you get is the whole contract:
+ * Four outcomes, and which one you get is the whole contract:
  *
  *   - `visitor` changed → `identify()`. No re-init, no lost panel state.
  *   - `locale` changed → `setLocale()`. Same.
- *   - anything else changed → `init()` again, which DESTROYS and re-mounts.
- *     The conversation is server-side so no history is lost, but an open
- *     panel closes. That is the honest cost of a widget with no `setTheme`,
- *     and it is documented in both READMEs rather than hidden behind a
- *     silently-ignored prop.
+ *   - `theme` keys changed → `setTheme()`, a merge. Same, no remount.
+ *   - anything else, or a `theme` key REMOVED (a merge cannot unset one) →
+ *     `init()` again, which DESTROYS and re-mounts: an open panel closes.
  */
 function applyUpdate(
   claim: object,
@@ -433,7 +434,11 @@ function reconcile(): void {
     state.nonce = next.nonce;
   }
 
-  const initChanged = !sameOptions(initOptionsFor(active), initOptionsFor(next), ['visitor']);
+  // `theme`: a live `setTheme`, unless a key was dropped — `theme-delta.ts`.
+  const theme = themeDelta(active.theme, next.theme);
+  const initChanged =
+    theme.removed ||
+    !sameOptions(initOptionsFor(active), initOptionsFor(next), ['visitor', 'theme']);
   if (initChanged) {
     state.active = next;
     for (const [event, forward] of FORWARDERS) {
@@ -454,6 +459,11 @@ function reconcile(): void {
      * not wait on the host's identity route; `refresh()` below asks again.
      */
     dispatch('init', withResolvedIdentity(initOptionsFor(next), state.identity?.resolved()));
+    // The override layer outlives `init` and outranks it: re-assert. Limit: a
+    // live-set key that is now REMOVED keeps its value until a page load.
+    if (state.themePushed && next.theme !== undefined) {
+      dispatch('setTheme', next.theme);
+    }
     if (next.locale !== undefined) {
       dispatch('setLocale', next.locale);
     }
@@ -464,6 +474,11 @@ function reconcile(): void {
 
   syncIdentityLoop(state, next, dispatch);
 
+  if (Object.keys(theme.changed).length > 0) {
+    state.active = { ...state.active, theme: next.theme };
+    state.themePushed = true;
+    dispatch('setTheme', theme.changed);
+  }
   if (!sameValue(active.visitor, next.visitor)) {
     state.active = { ...state.active, visitor: next.visitor };
     identifyOrReset(next.visitor, dispatch);

@@ -1,5 +1,13 @@
 # @chatlychat/widget-element — changelog
 
+## 0.23.0 — 2026-10-26
+
+**A changed `theme` is applied live, not by re-initialising.** `<chatly-widget theme>` and `<ChatlyWidget theme>` used to destroy and remount on any theme change, so a host computing its theme from light/dark state closed an open panel on the next render after a toggle. A changed value now goes through `setTheme` (a merge): the panel repaints in place with no network request.
+
+**Re-init only when a top-level key is removed.** `setTheme` merges, so it cannot say "this key is gone"; a key that had a value and now has none (absent or `undefined`) still re-initialises. Nested objects (`darkTheme`, `inlineTheme`, …) are not walked — the widget layers them as whole values, so sending the new object also drops a removed nested key, live.
+
+**Known limit.** The widget keeps its `setTheme` layer across `init` and it outranks the init theme, so after a re-init the new theme is re-asserted over it, but a key that was changed live and is then removed keeps its last live value until a page load. Fixing that needs a way to clear the layer in the widget itself. No `remountOnThemeChange` option was added: it would have the same stale layer.
+
 ## 0.22.0 — 2026-10-26
 
 **`visitor: null` now means "signed out", and it is a privacy fix.** `reset()` on a sign-out has only ever worked as a TRANSITION — `visitor` held an identity and then went away. A page that loads already signed out never makes that transition, so the previous account's external id stayed in the browser (the widget keeps it at `chatly:xid:<publicId>` to spot an account switch). On a shared device that is the last person's identity outliving a sign-out that happened in another tab or another session, which is why integrators were keeping a "who was identified" key of their own and calling `reset()` by hand.

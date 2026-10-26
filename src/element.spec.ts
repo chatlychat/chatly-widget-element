@@ -181,7 +181,9 @@ describe('properties', () => {
       theme?: Record<string, unknown>;
     };
     el.theme = { primaryColor: '#222222' };
-    expect(lastInit()['theme']).toEqual({ primaryColor: '#222222' });
+    // The property wins, and arrives live: a theme change is not a re-init.
+    expect(argsFor('init')).toHaveLength(1);
+    expect(argsFor('setTheme')).toEqual([[{ primaryColor: '#222222' }]]);
   });
 
   it('keeps a property set BEFORE the element was upgraded', () => {
