@@ -14,16 +14,12 @@
  *
  *   1. **StrictMode double-boot.** mount/cleanup/mount with a naive effect is
  *      init → destroy → init: two `POST /v1/widget/init` round trips, two
- *      sessions minted, and a launcher that visibly appears, vanishes and
- *      reappears in development.
+ *      sessions minted, and a launcher that appears, vanishes and reappears.
  *   2. **A leak on unmount.** An effect with no cleanup leaves the widget in
- *      the DOM after its component is gone — it survives route changes it
- *      should not, holds its socket, and a later mount `init`s a second one
- *      on top.
- *   3. **Re-init on every render.** Comparing props by reference re-inits
- *      whenever a parent re-renders with a fresh `theme={{…}}` literal or a
- *      new inline `onMessage` arrow. The visitor's open panel closes mid
- *      sentence.
+ *      the DOM after its component is gone, holding its socket.
+ *   3. **Re-init on every render.** Comparing props by reference re-inits on
+ *      any parent re-render with a fresh `theme={{…}}` literal or inline
+ *      `onMessage` arrow. The visitor's open panel closes mid sentence.
  *
  * So: a reference count with a DEFERRED teardown, a structural comparison of
  * the options, and ONE stable set of event forwarders installed at boot that
@@ -31,17 +27,17 @@
  *
  * ── Deliberately not exported ───────────────────────────────────────────
  *
- * `init` and `destroy` are absent from `controls`. A host that calls them
- * behind this module's back desynchronises the count — the widget is gone and
- * the wrapper still believes it is mounted, so the next unmount is a no-op and
- * the next mount does nothing. Mount with a wrapper or mount with the snippet;
- * not both.
+ * `init` and `destroy` are absent from `controls`. A host calling them behind
+ * this module's back desynchronises the count — the widget is gone and the
+ * wrapper still believes it is mounted. Mount with a wrapper or mount with the
+ * snippet; not both.
  */
 import { resetConflictWarning, warnOnConflict } from './conflict-warning.js';
+import { armLoaderFetch } from './defer-loader.js';
 import { syncIdentityLoop } from './embed-identity.js';
 import { EVENT_HANDLERS, WIDGET_EVENT_NAMES } from './events.js';
 import { withResolvedIdentity, type IdentityLoop } from './identity-loop.js';
-import { injectLoader, loaderInjected, resetLoaderInjection } from './inject-loader.js';
+import { loaderInjected, resetLoaderInjection } from './inject-loader.js';
 import { warnLateBootOption } from './lazy.js';
 import { sameOptions, sameValue } from './same-value.js';
 
@@ -132,6 +128,8 @@ interface MountState {
   identity: IdentityLoop | null;
   /** Pending deferred teardown, cancelled by a remount. See `release`. */
   teardown: ReturnType<typeof setTimeout> | null;
+  /** Takes down lazy mode's placeholder and listeners. See `armLoaderFetch`. */
+  disarmLazy: () => void;
 }
 
 let state: MountState | null = null;
@@ -205,6 +203,7 @@ export function startWidget(
     nonce: options.nonce,
     identity: null,
     teardown: null,
+    disarmLazy: () => undefined,
   };
   boot(state);
   return handle;
@@ -275,37 +274,35 @@ function boot(mount: MountState): void {
    * The identity loop (CHT-D10), started after the init is queued — the widget
    * is told who it IS only once it has been told which channel it is on.
    *
-   * The init is NOT delayed until the identity arrives, which was a choice.
-   * `loader.js` merges the queued init with its own slim one when the bundle
-   * lands (`queuedInit` in `apps/widget-loader/src/loader.ts`), and a bundle
-   * that arrives before a queued init exists is initialised from the shim
+   * The init is NOT delayed until the identity arrives. `loader.js` merges
+   * the queued init with its own slim one (`queuedInit` in `loader.ts`), and a
+   * bundle arriving before a queued init exists is initialised from the shim
    * properties alone — silently dropping the theme, behaviour and copy.
-   * Awaiting the host's identity route here would make that race real on
-   * every slow identity route.
+   * Awaiting the host's identity route would make that race real on every
+   * slow one.
    */
   syncIdentityLoop(mount, mount.active, dispatch);
 
   if (bundleAlreadyLoaded || preexisting || loaderInjected()) {
     return;
   }
-  injectLoader(mount.loaderUrl, mount.nonce);
+  // NOT unconditional any more: in every mode but `'off'` this arms a trigger
+  // and the first request to any Chatly host waits for it (`defer-loader.ts`).
+  mount.disarmLazy = armLoaderFetch(shim, mount);
 }
 
 /** The options the widget's own `init` gets — ours, minus our own extras. */
 function initOptionsFor(options: ChatlyEmbedOptions): ChatlyInitOptions {
   // `loaderUrl`, `lazy`, `nonce`, `locale`, `identity` and `identityEndpoint`
-  // are this package's, not the widget's. Passing them through would be
-  // harmless today and a collision the day the widget adds a key of the same
-  // name, so they are stripped rather than ignored. `lazy` would be the worst
-  // to leak: the widget ignores unknown options, so it would look like a
-  // setting that works.
+  // are this package's, not the widget's — stripped rather than ignored,
+  // because the widget drops unknown options silently and a leaked `lazy`
+  // would look like a setting that works.
   //
-  // Stripping the two identity keys does a second job that the comparison in
-  // `reconcile` depends on. `identity` is a FUNCTION, and an inline
-  // `identity={async () => …}` arrow is a new one on every React render — so
-  // left in, `sameOptions` would see a changed option and re-initialise the
-  // widget on every commit, closing the visitor's panel mid-sentence. The
-  // loop handles a changed provider itself, by refreshing.
+  // Stripping the two identity keys does a second job `reconcile`'s
+  // comparison depends on: `identity` is a FUNCTION, and an inline
+  // `identity={async () => …}` arrow is new on every React render, so left in
+  // it would re-initialise the widget on every commit and close the visitor's
+  // panel mid-sentence. The loop handles a changed provider by refreshing.
   const {
     loaderUrl: _loaderUrl,
     lazy: _lazy,
@@ -532,6 +529,9 @@ function release(claim: object): void {
     // for the rest of the page's life.
     state.identity?.stop();
     state.identity = null;
+    // Same reason as the loop above: an unfired lazy mode's placeholder and
+    // its `pointerdown` listener would outlive the component that asked.
+    state.disarmLazy();
     dispatch('destroy');
     state = null;
   }, 0);

@@ -40,6 +40,10 @@ function argsFor(method: string): unknown[][] {
 }
 
 const BASE: ChatlyEmbedOptions = { publicId: 'acme-web' };
+/** The shim's queue, read without the narrowing a `delete w.Chatly` imposes. */
+function queued(): unknown[] {
+  return (globalThis.window as unknown as ShimWindow).Chatly?.q ?? [];
+}
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -61,36 +65,17 @@ describe('handing lazy to the loader', () => {
     expect(w.Chatly?.lazy).toBe(true);
   });
 
-  it('writes it before the loader script is appended', () => {
-    // The ordering IS the feature. `loader.js` decides whether to fetch the
-    // bundle as its own script evaluates, so a `lazy` written after the tag
-    // is in the document is a coin flip at best.
+  it('queues the init before any loader script, so the placeholder has a theme', () => {
+    // The stand-in launcher is painted from the queued `init`'s theme, so the
+    // init has to be in the queue before anything can draw it — which is now
+    // before the first network request rather than before the loader's own
+    // script evaluates.
     delete w.Chatly;
-    let lazyWhenAppended: unknown = 'never appended';
-    const original = document.head.appendChild.bind(document.head);
-    vi.spyOn(document.head, 'appendChild').mockImplementation(((node: Node) => {
-      lazyWhenAppended = w.Chatly?.lazy;
-      return original(node);
-    }) as typeof document.head.appendChild);
-
-    startWidget({}, { ...BASE, lazy: 'manual' });
-    expect(lazyWhenAppended).toBe('manual');
-  });
-
-  it('queues the init before the loader script, so the placeholder has a theme', () => {
-    // The loader paints its stand-in launcher from the queued `init`'s theme.
-    // It can only do that if the init is already in the queue when the loader
-    // evaluates.
-    delete w.Chatly;
-    let queuedWhenAppended = 0;
-    const original = document.head.appendChild.bind(document.head);
-    vi.spyOn(document.head, 'appendChild').mockImplementation(((node: Node) => {
-      queuedWhenAppended = w.Chatly?.q?.length ?? 0;
-      return original(node);
-    }) as typeof document.head.appendChild);
-
     startWidget({}, { ...BASE, lazy: true, theme: { primaryColor: '#abcdef' } });
-    expect(queuedWhenAppended).toBeGreaterThan(0);
+    // Re-read through `queued()`, not `w.Chatly?.q`: the `delete` above narrows
+    // the property to `never` for the rest of the block, so the direct read
+    // does not typecheck even though it is correct at runtime.
+    expect(queued().some((entry) => (entry as unknown[])[0] === 'init')).toBe(true);
   });
 
   it('leaves the shim alone when lazy is unset', () => {
@@ -133,6 +118,130 @@ describe('handing lazy to the loader', () => {
     handle.update({ ...BASE, lazy: false });
     handle.update({ ...BASE, lazy: false });
     expect(warn.mock.calls.filter((c) => String(c[0]).includes('lazy'))).toHaveLength(1);
+  });
+});
+
+/**
+ * The leak this package shipped with, and the two tests that used to pin it.
+ *
+ * `boot` ended with an unconditional `injectLoader`, so EVERY mode fetched
+ * `loader.js` from our CDN on page load — `'manual'` included, whose
+ * documented promise is that nothing loads until the host calls `load()`. The
+ * request carries the visitor's IP, user agent and referrer, so a page that
+ * had set `lazy: 'manual'` and `storage: 'deny'` still told us a visitor was
+ * there before they touched anything.
+ *
+ * Two tests in the block above asserted that script WAS appended at mount —
+ * one checking `lazy` reached the shim before the tag, one checking the init
+ * was queued before it. Both passed, and both encoded the leak as the
+ * requirement. They are replaced rather than deleted: the ordering they cared
+ * about is still real, it is just ordering against the first REQUEST now
+ * instead of against the loader's own evaluation.
+ *
+ * `delete w.Chatly` in each case because the file's `installShim()` leaves a
+ * pre-existing global behind, and `boot` deliberately injects nothing when the
+ * host page brought its own snippet.
+ */
+describe('not contacting Chatly until the visitor reaches for the chat', () => {
+  function loaderScripts(): Element[] {
+    return [...document.head.querySelectorAll('script[data-chatly-loader]')];
+  }
+
+  function placeholder(): HTMLButtonElement | null {
+    const host = document.querySelector('[data-chatly-placeholder]');
+    return host?.shadowRoot?.querySelector('button') ?? null;
+  }
+
+  beforeEach(() => {
+    delete w.Chatly;
+    document.body.innerHTML = '';
+  });
+
+  it('fetches nothing at mount in manual mode', () => {
+    startWidget({}, { ...BASE, lazy: 'manual' });
+    expect(loaderScripts()).toHaveLength(0);
+  });
+
+  it('fetches when the host finally calls load()', () => {
+    startWidget({}, { ...BASE, lazy: 'manual' });
+    w.Chatly?.('load');
+    expect(loaderScripts()).toHaveLength(1);
+  });
+
+  it('fetches on a host open() too, not only on load()', () => {
+    // A header "Chat with us" button wired to `Chatly.open()` is the other
+    // half of manual mode, and it may be the first thing clicked.
+    startWidget({}, { ...BASE, lazy: 'manual' });
+    w.Chatly?.('open');
+    expect(loaderScripts()).toHaveLength(1);
+  });
+
+  it('is not woken by configuration calls', () => {
+    // `setUser` and `setTheme` are bookkeeping the queue already preserves.
+    // If either pulled the loader down, the mode would be privacy-preserving
+    // in name only — and the identity loop issues `setUser` by itself.
+    startWidget({}, { ...BASE, lazy: 'manual' });
+    w.Chatly?.('setUser', { id: 'u1' });
+    w.Chatly?.('setTheme', { primaryColor: '#000000' });
+    expect(loaderScripts()).toHaveLength(0);
+  });
+
+  it('draws the stand-in launcher without fetching anything', () => {
+    startWidget({}, { ...BASE, lazy: true, theme: { primaryColor: '#abcdef' } });
+    expect(placeholder()).not.toBeNull();
+    expect(loaderScripts()).toHaveLength(0);
+  });
+
+  it('fetches when the stand-in launcher is clicked', () => {
+    startWidget({}, { ...BASE, lazy: true });
+    placeholder()?.click();
+    expect(loaderScripts()).toHaveLength(1);
+  });
+
+  it('fetches on the first page interaction under interaction mode', () => {
+    startWidget({}, { ...BASE, lazy: 'interaction' });
+    expect(loaderScripts()).toHaveLength(0);
+    window.dispatchEvent(new Event('pointerdown'));
+    expect(loaderScripts()).toHaveLength(1);
+  });
+
+  it('still fetches at mount when lazy is unset', () => {
+    // Every existing embed. `off` means eager and changing that would move
+    // the launcher's appearance on pages that never asked for it.
+    startWidget({}, BASE);
+    expect(loaderScripts()).toHaveLength(1);
+  });
+
+  it('clears lazy off the shim before injecting, so the loader does not re-arm', () => {
+    /*
+     * `loader.js` reads `lazy` as its own script evaluates. Left in place it
+     * would arm a SECOND set of triggers: in launcher mode `drawPlaceholder`
+     * refuses a second host, so nothing is drawn and the loader then waits
+     * for a click the visitor has already given. The chat would never open.
+     */
+    startWidget({}, { ...BASE, lazy: true });
+    placeholder()?.click();
+    expect('lazy' in (w.Chatly ?? {})).toBe(false);
+  });
+
+  it('answers hasSession() before any request has been made', () => {
+    // Normally installed by `loader.js`. Deferring the loader means the mode
+    // most likely to ask — manual, deciding whether to call `load()` for a
+    // returning chatter — would get `undefined is not a function`.
+    startWidget({}, { ...BASE, lazy: 'manual' });
+    expect(typeof (w.Chatly as { hasSession?: unknown } | undefined)?.hasSession).toBe('function');
+    expect(loaderScripts()).toHaveLength(0);
+  });
+
+  it('takes the stand-in launcher down on unmount', () => {
+    // Without the disarm, a React route change away from the widget leaves a
+    // dead placeholder on the page and a live `pointerdown` listener on
+    // `window` behind it.
+    const handle = startWidget({}, { ...BASE, lazy: true });
+    expect(placeholder()).not.toBeNull();
+    handle.stop();
+    vi.runAllTimers();
+    expect(placeholder()).toBeNull();
   });
 });
 

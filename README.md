@@ -112,16 +112,41 @@ Anything else — `lazy="eventually"` — loads **eagerly**, which is today's
 behaviour and the safe direction, and warns by name. A typo that silently
 disabled lazy loading would look exactly like a lazy mode that does not work.
 
-The stand-in launcher is drawn by `loader.js`, which is already on the page
-and ~2KB. It is a real `<button>` in a shadow root, so it is keyboard
-reachable and your page's CSS cannot reshape it, and its click rides the same
-queue the snippet has always used — so the panel opens as soon as the bundle
-replays it. A visitor is never left with no way to start a chat.
+The stand-in launcher is drawn by this package. It is a real `<button>` in a
+shadow root, so it is keyboard reachable and your page's CSS cannot reshape
+it, and its click rides the same queue the snippet has always used — so the
+panel opens as soon as the bundle replays it. A visitor is never left with no
+way to start a chat.
+
+#### It defers the REQUEST, not just the bundle
+
+Since 0.20.0, `lazy` other than `'off'` means **no request to any Chatly host**
+until the visitor reaches for the chat. Nothing is contacted on page load: not
+`widget.js`, and not `loader.js` either.
+
+That is a change, and it is worth saying why it needed one. The lazy decision
+used to live inside `loader.js`, so the script that decided whether to fetch
+anything had itself to be fetched first — on every page view, in every mode,
+`'manual'` included. The request carries the visitor's IP address, user agent
+and referrer, so a page that had set `lazy="manual"` still told us a visitor
+was there before they touched anything. The triggers are part of this package
+now, which is to say they run in _your_ bundle, so there is nothing to fetch
+before the decision is made.
+
+`lazy="off"` (the default, and any unset `lazy`) is unchanged and eager: it
+means "fetch on page load", and deferring it would move when the launcher
+appears on pages that never asked for that.
+
+If you paste the `<script>` snippet instead of using this package, the
+page-load request is structural and cannot be deferred — `lazy` cannot run
+until `loader.js` has arrived. Mirroring our assets onto your own domain is
+the other way to avoid it; see the public docs for `/version.json`, the
+immutable `/v/<build>/` paths and their SRI hashes.
 
 Two costs worth knowing. A `track()` call made in lazy mode waits in the
 queue until something loads the bundle, so a visitor who leaves the page first
-loses the event. And `lazy` is read ONCE, when `loader.js` evaluates:
-changing the attribute afterwards warns rather than taking effect.
+loses the event. And `lazy` is read ONCE, at boot: changing the attribute
+afterwards warns rather than taking effect.
 
 With `inline` there is no launcher to stand in for, so the trigger is the
 element approaching the viewport instead. `prefers-reduced-data` and the

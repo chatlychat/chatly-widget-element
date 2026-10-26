@@ -1,5 +1,13 @@
 # @chatlychat/widget-element — changelog
 
+## 0.20.0 — 2026-10-26
+
+**Behaviour change, and it is a privacy fix.** `lazy` in any mode but `'off'` now makes NO request to any Chatly host until the visitor reaches for the chat — `load()`, `open()`, the stand-in launcher being clicked, or the first page interaction. Previously every mode fetched `loader.js` on page load, `'manual'` included, whose documented promise is that nothing loads until you call `load()`; that request carries the visitor's IP address, user agent and referrer, so a page with `lazy="manual"` still announced the visitor before they touched anything.
+
+The cause was structural rather than a missing branch: the lazy decision lived inside the script you had to fetch to run it. The triggers (and the stand-in launcher) are part of this package now, so they run in your bundle. `lazy: 'off'`, which is the default and what an unset `lazy` means, is unchanged and eager.
+
+Also new: `Chatly.hasSession()` now answers before any request has been made, which `lazy="manual"` needs in order to decide whether to call `load()` for a returning chatter.
+
 ## 0.19.0 — 2026-10-26
 
 New event and handler for the bot's ephemeral notice: `chatly-notice` / `onNotice`, with `{ conversationId, replyTo, body }`. `ELEMENT_EVENTS` and `EVENT_HANDLERS` gain `notice` (17 events).
