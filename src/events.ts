@@ -58,6 +58,7 @@ export const EVENT_HANDLERS = {
   reset: 'onReset',
   action: 'onAction',
   navigate: 'onNavigate',
+  notice: 'onNotice',
   error: 'onError',
   profile: 'onProfile',
 } as const satisfies Record<ChatlyEventName, keyof ChatlyEmbedHandlers>;

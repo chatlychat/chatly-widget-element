@@ -67,6 +67,12 @@ export type ChatlyEventName =
    * With no handler the widget navigates itself. See `@chatlychat/sdk-js`.
    */
   | 'navigate'
+  /**
+   * A bot sent an ephemeral notice answering a silent postback: `detail` is
+   * `{ conversationId, replyTo, body }`. Nothing is stored, so a page that
+   * wants a toast draws it itself. See `@chatlychat/sdk-js`.
+   */
+  | 'notice'
   | 'error';
 
 /** What a `ready` or `identified` event carries. */

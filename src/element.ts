@@ -209,6 +209,7 @@ export const ELEMENT_EVENTS = [
   'reset',
   'action',
   'navigate',
+  'notice',
   'error',
   'profile',
 ] as const satisfies readonly ChatlyDomEventSuffix[];

@@ -356,6 +356,8 @@ export interface ChatlyEmbedHandlers {
    * is what stops the widget navigating by itself.
    */
   onNavigate?: (detail: unknown) => void;
+  /** A bot's ephemeral notice: `{ conversationId, replyTo, body }`. Not stored; gone if you miss it. */
+  onNotice?: (detail: unknown) => void;
   /**
    * The widget could not do something it was asked to do.
    *

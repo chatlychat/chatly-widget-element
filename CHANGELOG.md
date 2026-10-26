@@ -1,5 +1,9 @@
 # @chatlychat/widget-element — changelog
 
+## 0.19.0 — 2026-10-26
+
+New event and handler for the bot's ephemeral notice: `chatly-notice` / `onNotice`, with `{ conversationId, replyTo, body }`. `ELEMENT_EVENTS` and `EVENT_HANDLERS` gain `notice` (17 events).
+
 ## 0.18.0 — 2026-10-26
 
 New event and handler for the `navigate` card action: `chatly-navigate` / `onNavigate`, with `{ path, label, conversationId, messageId, actionId }`. Providing a handler is what stops the widget navigating by itself (it otherwise opens `location.origin + path`).
