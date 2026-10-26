@@ -63,6 +63,12 @@ const ATTRIBUTES: ReadonlyArray<{
   readonly json?: true;
   /** Overrides the plain `getAttribute` read. One row needs it — see `nonce`. */
   readonly read?: (element: HTMLElement) => string | null;
+  /**
+   * Overrides the VALUE step rather than the read step. One row needs it —
+   * see `tracking`, whose value may be a boolean, which `json` refuses and a
+   * pass-through string cannot express.
+   */
+  readonly parse?: (element: HTMLElement, raw: string) => unknown;
 }> = [
   { attribute: 'public-id', option: 'publicId' },
   { attribute: 'api-url', option: 'apiUrl' },
@@ -80,11 +86,62 @@ const ATTRIBUTES: ReadonlyArray<{
   { attribute: 'locale', option: 'locale' },
   /*
    * `storage="deny"` holds back every write to the visitor's browser, for a
-   * site under a consent banner. Passed through as the raw string; the widget
-   * treats anything other than `deny` as allowed, which keeps every existing
-   * embed unchanged.
+   * site under a consent banner. Passed through as the raw string, because
+   * the widget is the one interpreter of the value.
+   *
+   * It does NOT treat anything other than `deny` as allowed, which this
+   * comment claimed until 2026-10-19 and which was never quite true of the
+   * widget: an unrecognised value fails CLOSED and warns (Numera NEW-6), and
+   * an ABSENT one is now `'on-open'` rather than `'allow'` (CHT-S-01). The
+   * attribute is still free-form; `'allow'` is the opt-in to eager storage.
    */
   { attribute: 'storage', option: 'storage' },
+  /*
+   * `consent="auto"` and `consent-category` (CHT-X02): raw strings, because
+   * the LOADER is the one interpreter — it reads them off the queued `init`
+   * before the widget exists, and treats anything but `auto` as off.
+   */
+  { attribute: 'consent', option: 'consent' },
+  { attribute: 'consent-category', option: 'consentCategory' },
+  // `analytics="grant"` (B08): raw string; the widget accepts only 'grant'.
+  { attribute: 'analytics', option: 'analytics' },
+  /*
+   * `tracking` is the one row that needs neither pass-through nor `json`.
+   *
+   * Pass-through is wrong because the value is a BOOLEAN and the widget's
+   * `applyTracking` fails closed: `'false'` would be read as off, which is
+   * right, and `'true'` would be read as off too, which silently removes a
+   * feed the author asked for. `json: true` is wrong because
+   * `parseJsonAttribute` refuses anything that is not an object or an array,
+   * so `tracking="false"` would be rejected with an error and the option
+   * dropped — leaving tracking ON for an author who spelled it off. That is
+   * the "control that appears to work" failure, on a privacy switch.
+   *
+   * So it has its own reader. See `parseTrackingAttribute`.
+   */
+  { attribute: 'tracking', option: 'tracking', parse: parseTrackingAttribute },
+  /*
+   * `identity-fallback="anonymous"` keeps chat working when the channel
+   * refuses the signed identity — a rotated `userHash` secret otherwise
+   * removes the widget for every signed-in visitor at once. Passed through as
+   * the raw string for the same reason `storage` is: the widget is the one
+   * interpreter of the value, and anything other than `anonymous` leaves the
+   * default behaviour, which is to show the failure.
+   */
+  { attribute: 'identity-fallback', option: 'identityFallback' },
+  /*
+   * `identity-endpoint="/api/chatly/identity"` is the identity loop's
+   * declarative half (CHT-D10) and the only half HTML can express: its
+   * sibling option `identity` is a FUNCTION, and there is no attribute
+   * spelling for one. A host with a callback sets it as a property instead —
+   * `el.config = { identity: async () => … }` — which `#options()` already
+   * merges over the attributes, so no row is needed for it and the parity
+   * gate carries a `widgetOnly` exemption saying so.
+   *
+   * Passed through as the raw string: it is a URL, and the one interpreter of
+   * it is `fetchIdentity` in `identity-loop.ts`.
+   */
+  { attribute: 'identity-endpoint', option: 'identityEndpoint' },
   { attribute: 'css-overrides', option: 'cssOverrides' },
   /*
    * `nonce` is read through `element.nonce`, NOT `getAttribute('nonce')`.
@@ -145,11 +202,15 @@ export const ELEMENT_EVENTS = [
   'message-ack',
   'message-received',
   'unread',
+  'appearance',
   'conversation',
+  'conversation-changed',
   'identified',
   'reset',
   'action',
+  'navigate',
   'error',
+  'profile',
 ] as const satisfies readonly ChatlyDomEventSuffix[];
 
 /** `chatly-ready`, `chatly-message`, … — the DOM event names, without prefix. */
@@ -225,6 +286,41 @@ function parseJsonAttribute(element: HTMLElement, attribute: string, raw: string
     return undefined;
   }
   return parsed;
+}
+
+/**
+ * `tracking`, whose three legitimate spellings are a boolean, a boolean, and
+ * an object.
+ *
+ *   tracking="false"               — every visitor.* feed off
+ *   tracking                       — present, no value: on (HTML's own
+ *   tracking="true"                  reading of a valueless attribute, and
+ *                                    the same one `lazy` gets)
+ *   tracking='{"exitIntent":false}' — one feed off, the rest default
+ *
+ * Anything else is OFF, and says so. That is the opposite of how every other
+ * attribute here degrades — a bad `theme` leaves a working chat in the
+ * default colours — and the asymmetry is the point: this is a privacy
+ * switch, and the one outcome an author who typed `tracking="off"` cannot
+ * have wanted is telemetry. A malformed granular object fails closed for the
+ * same reason, rather than falling through to the default.
+ */
+function parseTrackingAttribute(element: HTMLElement, raw: string): unknown {
+  const text = raw.trim();
+  if (text === '' || text === 'true') {
+    return true;
+  }
+  if (text.startsWith('{')) {
+    return parseJsonAttribute(element, 'tracking', text) ?? false;
+  }
+  if (text !== 'false') {
+    console.error(
+      `[Chatly] <${element.localName}> read tracking="${text}" as OFF. The attribute takes ` +
+        `"false", "true", or a JSON object such as '{"exitIntent":false}' — an unrecognised ` +
+        `value fails closed, because a privacy switch must not be rescued by a typo.`,
+    );
+  }
+  return false;
 }
 
 /**
@@ -392,12 +488,17 @@ function buildElementClass(): CustomElementConstructor {
     /** Attributes, then properties (which win), then `config` (which wins). */
     #options(): ChatlyEmbedOptions {
       const options: Record<string, unknown> = {};
-      for (const { attribute, option, json, read } of ATTRIBUTES) {
+      for (const { attribute, option, json, read, parse } of ATTRIBUTES) {
         const raw = read === undefined ? this.getAttribute(attribute) : read(this);
         if (raw === null) {
           continue;
         }
-        const value = json === true ? parseJsonAttribute(this, attribute, raw) : raw;
+        const value =
+          parse !== undefined
+            ? parse(this, raw)
+            : json === true
+              ? parseJsonAttribute(this, attribute, raw)
+              : raw;
         if (value !== undefined) {
           options[option] = value;
         }

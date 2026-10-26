@@ -13,7 +13,7 @@
  */
 import { dispatch, read } from './embed.js';
 
-import type { ChatlyIdentity } from './types.js';
+import type { ChatlyIdentity, ChatlyOpenRequest, ChatlyTheme } from './types.js';
 
 /**
  * The widget's post-boot methods, typed.
@@ -31,7 +31,15 @@ import type { ChatlyIdentity } from './types.js';
  * that an `identify` landed; `onError` is how you learn it did not.
  */
 export const controls = {
-  open: (tab?: 'home' | 'messages' | 'help'): void => dispatch('open', tab),
+  /*
+   * The object form is passed straight through rather than being re-typed
+   * here. This read `(tab?: 'home' | 'messages' | 'help')` while the widget
+   * had accepted `{ view: 'conversation', … }` for weeks: an element consumer
+   * could not open a thread at all, and `check-widget-wrapper-parity.mjs` did
+   * not see it because it compares the method NAMES.
+   */
+  open: (target?: 'home' | 'messages' | 'help' | ChatlyOpenRequest): void =>
+    dispatch('open', target),
   close: (): void => dispatch('close'),
   toggle: (next?: 'open' | 'close' | boolean): void => dispatch('toggle', next),
   identify: (identity: ChatlyIdentity): void => dispatch('identify', identity),
@@ -43,6 +51,7 @@ export const controls = {
   setLabel: (label: string): void => dispatch('setLabel', label),
   removeLabel: (label: string): void => dispatch('removeLabel', label),
   setLocale: (locale: string): void => dispatch('setLocale', locale),
+  dismiss: (conversationId: string): void => dispatch('dismiss', conversationId),
   track: (name: string, properties?: Record<string, unknown>): void =>
     dispatch('track', name, properties),
   registerPushToken: (
@@ -60,6 +69,15 @@ export const controls = {
    */
   setStorageConsent: (granted: boolean): void => dispatch('setStorageConsent', granted),
   /**
+   * Report a consent decision per category: `true` granted, `false` refused,
+   * `null` undecided, omitted unchanged. See the `consent` embed option.
+   */
+  setConsent: (decision: {
+    functional?: boolean | null;
+    analytics?: boolean | null;
+    marketing?: boolean | null;
+  }): void => dispatch('setConsent', decision),
+  /**
    * Move the widget and its panel after boot (NCH-22).
    *
    * `x`/`y` move the launcher's corner offsets; `panelY` moves the panel's
@@ -75,6 +93,31 @@ export const controls = {
    */
   setOffset: (offset: { x?: number; y?: number; panelY?: number }): void =>
     dispatch('setOffset', offset),
+  /**
+   * Re-theme the widget live, without tearing it down (CHT-S-09).
+   *
+   * Each call merges, like `setOffset`, and layers above the `theme` prop and
+   * the branding configured on the channel. It repaints an open panel in
+   * place, issues no network request and emits no lifecycle event.
+   *
+   * ── This is the LIVE path, and the `theme` prop is not ──────────────────
+   *
+   * Changing the `theme` attribute or property re-boots the widget:
+   * `reconcile()` in `embed.ts` treats any change to an `init` option as an
+   * `init`, which destroys and re-mounts. That is right for most options and
+   * wrong for this one, and routing a changed `theme` prop through here
+   * instead is NOT a wiring fix — a prop describes a whole theme, so a key
+   * the host REMOVED would have to be un-layered, and this method's merge
+   * semantics cannot express that while the stale prop still sits
+   * underneath. It needs a decision; until then, a host with a light/dark
+   * switch calls this and leaves the prop alone.
+   *
+   * On `controls` rather than exempted from the parity gate, for the same
+   * reason as `setOffset`: it touches nothing the reference count in
+   * `embed.ts` owns, closes nothing, and cannot desynchronise a second
+   * consumer's view of the mount.
+   */
+  setTheme: (theme: ChatlyTheme): void => dispatch('setTheme', theme),
   /**
    * Unread replies waiting for this visitor, across their threads (W-06).
    *

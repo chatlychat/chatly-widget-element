@@ -1,5 +1,119 @@
 # @chatlychat/widget-element — changelog
 
+## 0.18.0 — 2026-10-26
+
+New event and handler for the `navigate` card action: `chatly-navigate` / `onNavigate`, with `{ path, label, conversationId, messageId, actionId }`. Providing a handler is what stops the widget navigating by itself (it otherwise opens `location.origin + path`).
+
+## 0.17.0 — 2026-10-26
+
+**Behaviour change: visit telemetry is now opt-in.** The widget's own `visitor.page_view`, `visitor.returned`, `visitor.exit_intent`, `visitor.scroll_depth` and `visitor.idle_threshold` events are held and not sent until analytics consent is affirmatively granted. Opening the chat no longer grants it. New option `analytics: 'grant'` for sites outside any consent regime. `tracking: false` and the granular form are unchanged.
+
+## 0.16.2 — 2026-10-25
+
+`setConsent({ functional, analytics, marketing })`: tell the widget a consent decision from any consent banner, including your own. `consent: 'auto'` now reads the major CMPs (IAB TCF v2.2, Google Consent Mode v2, Cookiebot, OneTrust, Cookie Munch and others), not one vendor.
+
+## 0.16.1 — 2026-10-25
+
+- **`ChatlyTheme.anchor`** — mirrors `WidgetTheme.anchor` in
+  `@chatlychat/sdk-js@0.18.0`: a CSS selector the panel sits above and tracks,
+  falling back to the corner when it resolves to nothing.
+  `<chatly-widget theme='{"anchor":"[data-chat-button]"}'>` and
+  `startWidget({ theme: { anchor } })`.
+
+A type addition. The element forwards `theme` whole, so nothing else moved.
+
+## 0.8.0 — 2026-10-19
+
+A **minor** bump: one method and two identity fields. Unpublished at the time
+of writing — the version is here so the entry has somewhere to sit.
+
+### Added
+
+- **`controls.setTheme(theme)`** — re-theme a mounted widget without tearing
+  it down. The `theme` attribute and property still re-initialise, which
+  closes an open panel and issues a fresh `/v1/widget/init`; a host with a
+  light/dark switch should call this instead and leave the attribute alone. It
+  merges, like `setOffset`: pass what changed.
+
+  The attribute is deliberately NOT routed through it. An attribute describes a
+  whole theme, so a key you REMOVED would have to be un-applied, and a merge
+  cannot express that while the stale attribute still sits underneath. Routing
+  it needs a decision about what a removed key means; until then the method is
+  the live path and the attribute is the declarative one.
+
+- **`ChatlyIdentity.getToken?: () => string | Promise<string>`** and
+  **`ChatlyIdentity.userToken?: string`** — for a channel verifying visitors
+  against an identity provider (`identityVerification.mode` is `oidc`) rather
+  than against a shared secret. The server has accepted a `userToken` since
+  that door opened and no typed client could send one.
+
+  **Prefer `getToken`.** These tokens live about 60 seconds, and the widget
+  re-sends an identity on every `init` and on every recovery from a refused
+  session — so a token passed as a string is dead by the next render that
+  re-initialises. The provider is called per request and what it returns is
+  never stored: not in `localStorage`, not in memory between calls.
+
+  Do not pass `userHash` as well. A channel verifies one way or the other and
+  the server refuses the wrong credential for its mode, naming which it
+  wanted; nothing in the browser filters either one, deliberately, because
+  that 403 is the only thing that knows the channel's mode.
+
+## 0.7.0 — 2026-10-19
+
+A **minor** bump: two option fields, one of them a union that was missing a
+value the widget already supported. No breaking change to this package's API —
+but the WIDGET's default changed underneath it, which is the part to read.
+
+### Added
+
+- **`identityFallback?: 'anonymous'`**, and the `identity-fallback` attribute.
+  A rejected `userHash` used to take chat down with nothing the host could
+  catch: `POST /v1/widget/init` answered 403, no `error` event reached a
+  handler, and `ready` never fired, so one rotated secret removed support chat
+  for every signed-in user silently. With the fallback set, the panel opens
+  **anonymously** — it never attaches the identity you failed to prove — and a
+  later `identify()` with a corrected hash still gets a real attempt.
+- Two error codes worth subscribing to before the bundle loads:
+  `identity_rejected` (the hash did not verify) and `identity_missing_hash`
+  (the channel requires verification and none was sent).
+
+### Fixed
+
+- **`storage` accepts `'on-open'`.** The union here was `'allow' | 'deny'`
+  while the widget had supported `'on-open'` for some time, so the custom
+  element could not express the one mode that stores nothing until the visitor
+  asks for chat — a TypeScript consumer got an error for a value that worked.
+  The attribute comment also claimed "anything other than `deny`" enables
+  storage, which stopped being true when unknown values began failing closed.
+
+### Changed behaviour you did not opt into
+
+**The widget's default storage mode is now `'on-open'`** (it was `'allow'`).
+An embed that passes no `storage` option writes nothing to the device and
+sends no visit telemetry until the visitor opens the panel; the widget's own
+feeds are buffered, not dropped, and go out on engagement or on
+`setStorageConsent(true)`. Your own `track()` calls are never gated.
+
+An integrator found the old default storing a visitor token on a documentation
+site for people who never asked for chat. If you were relying on it, pass
+`storage="allow"` explicitly — that is now the mode that says so.
+
+## 0.6.0 — 2026-10-16
+
+### Added
+
+- `onConversationChanged` and the `chatly-conversation-changed` DOM event, so
+  all **thirteen** widget events are forwarded. A dot becomes a dash, as with
+  `message.ack`.
+- `controls.setOffset({ x, y, panelY })` and `ChatlyTheme.panelOffsetY`.
+
+### Fixed
+
+- A non-number `panelOffsetY`, `launcherSize`, `panelWidth` or `panelHeight`
+  is ignored with one console warning instead of being written as a bare
+  unitless value — which is invalid CSS, so the declaration was dropped and
+  the panel could land below the viewport.
+
 ## 0.5.0 — 2026-10-16
 
 ### Added

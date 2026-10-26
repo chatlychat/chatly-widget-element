@@ -51,11 +51,15 @@ export const EVENT_HANDLERS = {
   'message.ack': 'onMessageAck',
   'message.received': 'onMessageReceived',
   unread: 'onUnread',
+  appearance: 'onAppearance',
   conversation: 'onConversation',
+  'conversation.changed': 'onConversationChanged',
   identified: 'onIdentified',
   reset: 'onReset',
   action: 'onAction',
+  navigate: 'onNavigate',
   error: 'onError',
+  profile: 'onProfile',
 } as const satisfies Record<ChatlyEventName, keyof ChatlyEmbedHandlers>;
 
 /** The handler names, as a union — `'onReady' | 'onOpen' | …`. */

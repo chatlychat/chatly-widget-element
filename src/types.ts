@@ -24,6 +24,25 @@
  * `coerceConfig` in `embed.ts` for the one place a boundary exists).
  */
 
+/**
+ * The object form of `open`. Mirrors the widget's `OpenRequest`.
+ *
+ * Mirrored rather than imported because this package has NO dependencies —
+ * that is its whole point, and `check-widget-wrapper-parity.mjs` is what
+ * stops a mirror drifting from the thing it mirrors.
+ *
+ * `conversationId` opens an EXISTING thread. It is not a capability: the id
+ * sits on a page the visitor controls, and every widget read of a thread is
+ * checked against the visitor session server-side, so a forged one opens an
+ * empty panel.
+ */
+export interface ChatlyOpenRequest {
+  readonly view: 'conversation';
+  readonly botSlug?: string;
+  readonly initialMessage?: string;
+  readonly conversationId?: string;
+}
+
 /** Identity the host page already knows. Mirrors the widget's `WidgetIdentity`. */
 export interface ChatlyIdentity {
   /**
@@ -39,133 +58,117 @@ export interface ChatlyIdentity {
    * Never in the browser: the secret would be in your page source.
    */
   userHash?: string;
+  /**
+   * IDV v2: a short-lived HS256 JWT YOUR SERVER mints with the channel's
+   * identity-verification secret, signing `sub` and the `email`, `name` and
+   * `attrs` beside it rather than only the external id. Accepted alongside
+   * `userHash`; at most 300 seconds of life, so mint it per render.
+   */
+  identityToken?: string;
+  /**
+   * A short-lived identity token from your identity provider, for a channel
+   * verifying visitors against one (`identityVerification.mode` is `oidc`)
+   * rather than against a shared secret. Its `sub` is the external id.
+   *
+   * **Prefer `getToken`.** A token lives about 60 seconds, so this one is
+   * dead by the next render that re-initialises the widget.
+   */
+  userToken?: string;
+  /**
+   * Mint a short-lived identity token on demand, for a channel verifying
+   * visitors against an identity provider (`identityVerification.mode` is
+   * `oidc`) instead of a shared secret.
+   *
+   * A FUNCTION rather than a string because these tokens live ~60 seconds and
+   * the widget re-sends an identity on every `init` and on every recovery
+   * from a refused session. It is called per request and the result is never
+   * stored anywhere.
+   *
+   * Do not pass `userHash` as well — a channel verifies one way or the other
+   * and the server refuses the wrong credential for its mode.
+   */
+  getToken?: () => string | Promise<string>;
   attributes?: Record<string, unknown>;
 }
 
-/** Colours, shape, type and launcher art. Mirrors the widget's `WidgetTheme`. */
-export interface ChatlyTheme {
-  icons?: Partial<Record<'mic' | 'stop' | 'attachment' | 'check' | 'star', string>>;
+/*
+ * Six shapes live in `types-theme.ts`: `ChatlyTheme`, `ChatlyThemeOverlay`,
+ * and — since 2026-10-25 — `ChatlyQuip`, `ChatlyBehavior`,
+ * `ChatlyQuickLink` and `ChatlyCopy`.
+ *
+ * The first two moved when the theming surface pushed this file over the
+ * repo's 650-line ceiling; the other four moved when the identity-loop
+ * options (CHT-D10) pushed it over again. That second move groups them the
+ * way the AUTHORITATIVE side already groups them — all six mirror shapes that
+ * sit together in `packages/sdk-js/src/widget-appearance.ts`.
+ *
+ * `check-widget-wrapper-parity.mjs` reads BOTH files (`WRAPPER_TYPES`) and
+ * concatenates them before extracting interfaces, so all four of the moved
+ * pairs keep being compared and the gate needed no change. Note that this
+ * comment used to argue the move was safe because the gate "does not
+ * member-compare" the other file — true of `ChatlyThemeOverlay`, which has no
+ * pair, and NOT true of a file that now holds four shapes that do. The real
+ * reason it is safe is the concatenation, plus the per-pair floors that turn
+ * a path that stops resolving into a loud "nothing was verified".
+ *
+ * Re-exported below, so no consumer's import changed.
+ */
+import type { ChatlyIdentityAnswer, ChatlyIdentityProvider } from './identity-loop.js';
+import type {
+  ChatlyAppearanceEvent,
+  ChatlyEventName,
+  ChatlyMessageAckEvent,
+  ChatlyMessageEvent,
+  ChatlyMessageReceivedEvent,
+  ChatlyOpenEvent,
+  ChatlySession,
+  ChatlyUnreadEvent,
+} from './types-events.js';
+import type {
+  ChatlyBehavior,
+  ChatlyCopy,
+  ChatlyQuickLink,
+  ChatlyQuip,
+  ChatlyTheme,
+  ChatlyThemeOverlay,
+} from './types-theme.js';
 
-  primaryColor?: string;
-  primaryContrast?: string;
-  background?: string;
-  backgroundSubtle?: string;
-  foreground?: string;
-  foregroundMuted?: string;
-  border?: string;
-  bubbleAgentBg?: string;
-  bubbleAgentFg?: string;
+/*
+ * `ChatlyIdentityAnswer` and `ChatlyIdentityProvider` are declared in
+ * `identity-loop.js`, beside the `apply()` that reads them — the shape a
+ * provider may answer with and the rules for refusing one are one
+ * explanation, and splitting them would leave the type here with a comment
+ * pointing at the code there.
+ *
+ * The import is type-only in BOTH directions (that module imports
+ * `ChatlyIdentity` and `ChatlyInitOptions` from here), so the cycle is erased
+ * at compile time and there is no module-evaluation order to get wrong. Same
+ * arrangement as `types-theme.js` above, which is this file's precedent for a
+ * declaration living next to its mechanism.
+ */
 
-  fontFamily?: string;
-  fontSize?: number | string;
-
-  borderRadius?: number | string;
-  launcherSize?: number;
-  panelWidth?: number;
-  panelHeight?: number;
-
-  position?: 'left' | 'right';
-  offsetX?: number;
-  offsetY?: number;
-  /** Panel bottom edge, measured up from `offsetY`. For a custom launcher. */
-  panelOffsetY?: number;
-
-  headerStyle?: 'gradient' | 'solid' | 'plain';
-  headerGradient?: [string, string];
-
-  hideLauncher?: boolean;
-  launcherIcon?: string;
-  launcherImage?: string;
-  launcherPing?: boolean;
-  launcherIdleAnimation?: 'none' | 'wiggle' | 'pulse' | 'bounce';
-
-  colorScheme?: 'light' | 'dark' | 'auto';
-
-  dangerColor?: string;
-  successColor?: string;
-  warningColor?: string;
-
-  hideBranding?: boolean;
-
-  logoUrl?: string;
-  agentAvatarUrl?: string;
-}
-
-/** Rotating micro-copy bound to a selector. Mirrors `WidgetQuip`. */
-export interface ChatlyQuip {
-  selector: string;
-  lines: string[];
-  intervalMs?: number;
-  oncePerSession?: boolean;
-}
-
-/** Behaviour toggles. Mirrors the widget's `WidgetBehavior`. */
-export interface ChatlyBehavior {
-  tabs?: Array<'home' | 'messages' | 'help'>;
-  defaultTab?: 'home' | 'messages' | 'help';
-  autoOpenAfterMs?: number;
-  hideOnUrls?: string[];
-  helpSearchOnly?: boolean;
-  starterPrompts?: string[];
-  home?: Array<'start' | 'recent' | 'quickLinks' | 'blocks' | 'helpSearch'>;
-  /**
-   * A `{ v, blocks }` envelope, the same shape a message carries. `unknown`
-   * rather than a block union: the widget validates it at the render boundary
-   * precisely so a block type a newer release added does not blank the home
-   * screen on an older bundle, and a narrow type here would refuse at compile
-   * time the forward compatibility the runtime was built to allow.
-   */
-  homeBlocks?: unknown;
-  draggable?: boolean;
-  quips?: ChatlyQuip[];
-  confettiClickStreak?: number;
-}
-
-/** A Home-tab button. Mirrors `WidgetQuickLink`. */
-export interface ChatlyQuickLink {
-  label: string;
-  href?: string;
-  startConversation?: string | { initialMessage?: string };
-  description?: string;
-  icon?: string;
-}
-
-/** Every string in the panel. Mirrors `WidgetCopy`. */
-export interface ChatlyCopy {
-  greeting?: string;
-  greetingSubtitle?: string;
-  homeStartCta?: string;
-  homeStartCtaSubtitle?: string;
-  homeRecentTitle?: string;
-  homeQuickLinksTitle?: string;
-  homeHelpTitle?: string;
-  tabHome?: string;
-  tabMessages?: string;
-  tabHelp?: string;
-  messagesEmpty?: string;
-  messagesNewCta?: string;
-  helpSearchPlaceholder?: string;
-  helpEmpty?: string;
-  helpNoResults?: string;
-  helpStillNeedHelp?: string;
-  composerPlaceholder?: string;
-  composerSend?: string;
-  poweredBy?: string;
-  closeAria?: string;
-  backAria?: string;
-  unavailableMessage?: string;
-  unavailableRetry?: string;
-  /**
-   * The expected-reply note in the header, shown only while somebody is
-   * available to answer. Set it to your real figure, or to an empty string to
-   * show nothing.
-   *
-   * It was a hardcoded sentence the widget showed regardless of staffing, so
-   * an unstaffed workspace told every visitor it typically replies within a
-   * few minutes.
-   */
-  responseTimeNote?: string;
-}
+/*
+ * Re-exported so `./types.js` stays the one import path for consumers. Every
+ * existing `import type { ChatlyCopy } from './types.js'` keeps working.
+ */
+export type {
+  ChatlyAppearanceEvent,
+  ChatlyEventName,
+  ChatlyMessageAckEvent,
+  ChatlyMessageEvent,
+  ChatlyMessageReceivedEvent,
+  ChatlyOpenEvent,
+  ChatlySession,
+  ChatlyUnreadEvent,
+  ChatlyBehavior,
+  ChatlyCopy,
+  ChatlyIdentityAnswer,
+  ChatlyIdentityProvider,
+  ChatlyQuickLink,
+  ChatlyQuip,
+  ChatlyTheme,
+  ChatlyThemeOverlay,
+};
 
 /**
  * Everything `Chatly.init()` accepts, minus `on`.
@@ -179,6 +182,28 @@ export interface ChatlyCopy {
 export interface ChatlyInitOptions {
   /** Channel public ID. Required. */
   publicId: string;
+  /**
+   * `'auto'`: let the page's consent manager decide where the widget may
+   * store things (CHT-X02, ADR 0071) — IAB TCF v2.2, Google Consent Mode,
+   * Cookiebot, OneTrust, Osano, Complianz, CookieYes or Cookie Munch, read
+   * through each one's public page API. Until a decision is read, storage is
+   * held to this visit (`sessionStorage`). No consent manager on the page:
+   * no effect. See /guides/consent.
+   *
+   * An object is a decision the server already knows, per category, applied
+   * exactly like `setConsent`. Read by the LOADER off the queued `init`,
+   * before the widget itself loads — which is why this package queues it
+   * untouched rather than stripping it like `lazy`.
+   */
+  consent?:
+    | 'auto'
+    | { functional?: boolean | null; analytics?: boolean | null; marketing?: boolean | null };
+  /**
+   * Cookie Munch only: the category that governs storage under
+   * `consent: 'auto'`. Default `'support_chat'`. Any other category is
+   * ordinary opt-in: refusing it denies storage.
+   */
+  consentCategory?: string;
   apiUrl?: string;
   realtimeUrl?: string;
   visitor?: ChatlyIdentity;
@@ -197,141 +222,93 @@ export interface ChatlyInitOptions {
   mountTo?: string | Element;
   /**
    * Whether the widget may use the visitor's browser storage. Default
-   * `'allow'`.
+   * **`'on-open'`** since 2026-10-19 — nothing is written to the device, and
+   * no `visitor.*` telemetry is sent, until the visitor opens the panel or
+   * starts a conversation.
    *
    * `'deny'` makes every read return nothing and every write a no-op, and
    * purges anything already written. For a consent banner: embed with
    * `'deny'`, then call `setStorageConsent(true)` if the visitor agrees.
+   *
+   * `'allow'` is the eager mode and is now the one you opt in to: a session
+   * that survives a reload for every passer-by, and the live-visitor list
+   * populated by everyone rather than by the people who engaged.
+   *
+   * `'on-open'` was missing from this union until 2026-10-19 while the widget
+   * had accepted it since W-05 — so the mode that is now the DEFAULT could
+   * not be written down in a React prop or a `<chatly-widget storage>`
+   * attribute without a type error. Exactly the drift this package's parity
+   * gate exists for, and the one it cannot see: it compares member names, not
+   * their types.
+   *
+   * The OBJECT form sets Chatly's three categories separately —
+   * `{ functional: 'on-open', analytics: 'deny', marketing: 'deny' }` — and a
+   * category the object omits gets `'on-open'` rather than inheriting a
+   * sibling. `functional` is the session, `analytics` is `chatly:seen` and
+   * every `visitor.*` event, `marketing` is the `chatly:utm` entry. Those are
+   * Chatly's own names: map your consent manager's onto them yourself, with
+   * `setStorageConsent({ analytics: <their answer> })`.
    */
-  storage?: 'allow' | 'deny';
+  storage?:
+    | 'allow'
+    | 'deny'
+    | 'on-open'
+    | {
+        functional?: 'allow' | 'deny' | 'on-open';
+        analytics?: 'allow' | 'deny' | 'on-open';
+        marketing?: 'allow' | 'deny' | 'on-open';
+      };
+
+  /**
+   * `'grant'` (attribute `analytics="grant"`) is the site's own statement that
+   * visit analytics may be sent with no consent manager, for a site outside
+   * any consent regime. An explicit `storage` analytics `'deny'` still wins.
+   */
+  analytics?: 'grant';
+
+  /**
+   * Whether the widget may produce its own behavioural telemetry — the
+   * `visitor.page_view`, `visitor.returned`, `visitor.exit_intent`,
+   * `visitor.scroll_depth` and `visitor.idle_threshold` events, and the
+   * `chatly:seen` key behind `returned`.
+   *
+   * `tracking={false}` (or `tracking="false"` on the element) turns all five
+   * off: no listener on your page, no key written, nothing `visitor.*` sent.
+   * The granular form turns one feed off and leaves the rest —
+   * `{ visits, exitIntent, scrollDepth }`, where `visits` carries the three
+   * visit-level events and the other two name a gesture.
+   *
+   * Leaving it unset is NOT "on": visit telemetry is OPT-IN (since 0.17.0).
+   * Every event above is held until ANALYTICS consent is granted — by a
+   * consent manager (`consent="auto"`), `setConsent`, `setStorageConsent`, or
+   * `analytics="grant"`. Opening the chat does NOT grant it. This option only
+   * ever subtracts from what consent already permits. `track()` is never
+   * affected.
+   */
+  tracking?:
+    | boolean
+    | {
+        visits?: boolean;
+        exitIntent?: boolean;
+        scrollDepth?: boolean;
+      };
+
+  /**
+   * What to do when the channel refuses the identity in `visitor` (or in a
+   * later `identify()`): `'anonymous'` continues as an unverified, anonymous
+   * visitor rather than leaving the visitor with a widget that cannot open.
+   *
+   * It never continues as the claimed identity: the session this browser was
+   * holding is dropped, nothing is attached to `externalId`, and
+   * `session.identityVerified` is false. An `error` event fires either way,
+   * carrying `{ code: 'identity_rejected' | 'identity_missing_hash',
+   * status }`.
+   */
+  identityFallback?: 'anonymous';
 
   cssOverrides?: string;
   copy?: ChatlyCopy;
   copyByLocale?: Record<string, ChatlyCopy>;
-}
-
-/**
- * The widget's event names, as `Chatly.on()` spells them.
- *
- * `ready` is a state rather than a moment — the widget replays the last one
- * to a late subscriber — and both wrappers rely on that, because a React
- * effect or a `connectedCallback` can easily run after the session is up.
- */
-export type ChatlyEventName =
-  | 'ready'
-  /** The panel opened. Carries `ChatlyOpenEvent`. */
-  | 'open'
-  | 'close'
-  | 'message'
-  /**
-   * A message the visitor sent has been accepted by the server (W-09).
-   *
-   * Carries `{ id, localId, conversationId }`. `id` is the persisted id and
-   * `localId` is the one the thread showed while the message was in flight,
-   * so a host mirroring the thread can swap one for the other. It fires only
-   * after acceptance — a send that failed announces nothing.
-   */
-  | 'message.ack'
-  /**
-   * A message from an agent or a bot arrived while its thread was on screen.
-   * Carries `ChatlyMessageReceivedEvent`. Never fires for history loaded when
-   * a thread is opened.
-   */
-  | 'message.received'
-  /**
-   * The unread total changed (W-06). Carries `{ count }`.
-   *
-   * Fires the first time the total is known as well as on every change, so a
-   * badge can render from the event alone and never has to poll
-   * `getUnreadCount()`.
-   */
-  | 'unread'
-  | 'conversation'
-  | 'identified'
-  | 'reset'
-  | 'action'
-  | 'error';
-
-/** What a `ready` or `identified` event carries. */
-export interface ChatlySession {
-  contactId: string | null;
-  workspaceId: string;
-}
-
-/**
- * What a `message` event carries.
- *
- * `id` is the MESSAGE's id. `conversationId` is the thread it landed in, or
- * `null` before one exists — it was added to the widget's payload because `id`
- * alone gave a host page nothing to correlate against, and it was missing here
- * for exactly as long as it takes a second copy of a shape to drift: the
- * widget emitted the key, the React wrapper's `onMessage` type did not declare
- * it, so a consumer reading `m.conversationId` got a type error for a value
- * that was sitting in the object. `check-widget-wrapper-parity.mjs` compares
- * this interface against `InitOptions.on.message`'s parameter now.
- */
-export interface ChatlyMessageEvent {
-  id: string;
-  body: string;
-  authorType: string;
-  conversationId: string | null;
-}
-
-/**
- * What an `open` event carries (Crossly round 6, #5).
- *
- * `conversationId` is the thread the panel opened ON, or `null` for the home
- * screen, a tab, an article, or a new conversation not yet sent. Until
- * 2026-10-15 the widget emitted `{}`, so a host could not tell "opened to read
- * a reply" from "opened from cold".
- */
-export interface ChatlyOpenEvent {
-  conversationId: string | null;
-}
-
-/**
- * What a `message.received` event carries: an agent or bot message that
- * arrived while its thread was on screen. `id` is the STORED message's id —
- * the one webhooks and the REST API use — so a host can correlate it.
- *
- * `onMessageReceived` is the wrapper callback. This comment used to say there
- * was none and that `Chatly.on('message.received', …)` was the only route,
- * which was true and was the bug: the event was subscribable in TypeScript
- * and reached neither wrapper. See `events.ts`.
- */
-export interface ChatlyMessageReceivedEvent {
-  id: string;
-  conversationId: string;
-  authorType: 'agent' | 'bot';
-  body: string;
-}
-
-/**
- * What a `message.ack` event carries: the server stored a message the VISITOR
- * sent.
- *
- * `id` is the persisted id and `localId` the placeholder the thread showed
- * while the message was in flight, so a host mirroring the thread can swap
- * one for the other. `conversationId` is never null here — a stored message
- * has a thread. It fires only on acceptance; a send that failed announces
- * nothing.
- */
-export interface ChatlyMessageAckEvent {
-  id: string;
-  localId: string;
-  conversationId: string;
-}
-
-/**
- * What an `unread` event carries: agent and bot messages the visitor has not
- * had on screen, across their threads.
- *
- * Fires the first time the total is known as well as on every change, and is
- * replayed to a late subscriber — so a badge can render from this alone and
- * never has to poll `getUnreadCount()`.
- */
-export interface ChatlyUnreadEvent {
-  count: number;
 }
 
 /**
@@ -361,11 +338,24 @@ export interface ChatlyEmbedHandlers {
   onMessageReceived?: (detail: ChatlyMessageReceivedEvent) => void;
   /** The unread total changed, and once as soon as it is known (`unread`). */
   onUnread?: (detail: ChatlyUnreadEvent) => void;
+  onAppearance?: (detail: ChatlyAppearanceEvent) => void;
   onConversation?: (detail: unknown) => void;
+  /**
+   * The thread on screen changed — see `'conversation.changed'`. Use this to
+   * re-sync a mirrored thread on a move; `onConversation` also fires once at
+   * startup, which this one deliberately does not.
+   */
+  onConversationChanged?: (detail: unknown) => void;
   onIdentified?: (session: ChatlySession) => void;
   onReset?: (detail: unknown) => void;
   /** A visitor pressed a `host_event` action on a rich block. */
   onAction?: (detail: unknown) => void;
+  /**
+   * A visitor pressed a `navigate` action: `{ path, label, conversationId,
+   * messageId, actionId }`. Pass `path` to your router. Providing this handler
+   * is what stops the widget navigating by itself.
+   */
+  onNavigate?: (detail: unknown) => void;
   /**
    * The widget could not do something it was asked to do.
    *
@@ -374,6 +364,15 @@ export interface ChatlyEmbedHandlers {
    * none of which a host page can do anything about by crashing.
    */
   onError?: (detail: unknown) => void;
+  /**
+   * Which per-audience profile matched. `{ profile, matched }`.
+   *
+   * `unknown` like its neighbours: this package declares the event surface
+   * and `@chatlychat/sdk-js` declares the payloads, so a wrapper consumer who
+   * wants the shape imports it from there rather than having two copies of it
+   * drift.
+   */
+  onProfile?: (detail: unknown) => void;
 }
 
 /**
@@ -476,4 +475,57 @@ export interface ChatlyEmbedOptions extends ChatlyInitOptions {
    * to work. Changing it does NOT re-initialise the widget.
    */
   locale?: string;
+  /**
+   * Ask the host page who is signed in, and keep the widget in step (CHT-D10).
+   *
+   *     <ChatlyLauncher
+   *       publicId="acme-web"
+   *       identity={async () =>
+   *         (await fetch('/api/chatly/identity', { cache: 'no-store' })).json()
+   *       }
+   *     />
+   *
+   * Called at boot, whenever the tab becomes visible again, and before any
+   * re-init. Answer `{identity: {externalId, email, name, userHash}}` for a
+   * signed-in visitor and `{identity: null}` for a signed-out one; a bare
+   * identity object, or a bare `null`, is accepted too.
+   *
+   * **`null` signs the visitor out and nothing else does.** A provider that
+   * throws, a route that answers 500, a body with no `identity` key and an
+   * identity with no `externalId` all leave the visitor as they were, with a
+   * warning — an identity route having a bad minute must not drop every
+   * signed-in visitor's conversation.
+   *
+   * Sign-out and switch-account are both handled, and **you need no
+   * `localStorage` key of your own** for it: the widget already stores the
+   * external id it was last verified as at `chatly:xid:<publicId>`, which the
+   * channel's storage declaration already discloses.
+   *
+   * It never re-initialises the widget, so an inline arrow is fine. This is a
+   * `@chatlychat/widget-element` option and not one of the widget's, so a
+   * plain `Chatly('init', { identity })` snippet embed does NOT get it — the
+   * header of `identity-loop.ts` has the whole argument for both.
+   */
+  identity?: ChatlyIdentityProvider;
+  /**
+   * The declarative form of `identity`: a URL to `GET`.
+   *
+   *     <ChatlyLauncher publicId="acme-web" identityEndpoint="/api/chatly/identity" />
+   *     <chatly-widget public-id="acme-web" identity-endpoint="/api/chatly/identity">
+   *
+   * Fetched with `cache: 'no-store'` — an identity response a browser, a
+   * service worker or a CDN may reuse is one visitor's account served to the
+   * next one on a shared device. Answer `{identity: {…} | null}` and send
+   * `Cache-Control: private, no-store`;
+   * `chatlyIdentityHandler({ secret, getUser })` in `@chatlychat/sdk-node`
+   * writes that route for Next, Express and Fastify, `userHash` included.
+   *
+   * A non-2xx answer changes nothing — see `identity` for why that is not the
+   * same as signing the visitor out. Credentials are left at fetch's default
+   * (`same-origin`); a CROSS-ORIGIN route needs `credentials: 'include'` and
+   * a CORS policy to match, so use `identity` and write the `fetch` yourself.
+   *
+   * Ignored, with a warning, when `identity` is also set.
+   */
+  identityEndpoint?: string;
 }

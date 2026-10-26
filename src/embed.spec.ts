@@ -339,6 +339,17 @@ describe('the loader script', () => {
     expect(argsFor('init')[0]?.[0]).toEqual({ publicId: 'acme-web' });
   });
 
+  it('queues consent and consentCategory INTO the init, where the loader reads them', () => {
+    // Unlike `nonce` and `lazy`, these must NOT be stripped: the loader reads
+    // the queued init before the widget exists (apps/widget-loader/src/consent.ts).
+    startWidget({}, { ...BASE, consent: 'auto', consentCategory: 'preferences' });
+    expect(argsFor('init')[0]?.[0]).toEqual({
+      publicId: 'acme-web',
+      consent: 'auto',
+      consentCategory: 'preferences',
+    });
+  });
+
   it('refuses a nonce change rather than pretending to re-stamp', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const handle = startWidget({}, { ...BASE, nonce: 'first' });

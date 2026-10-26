@@ -22,7 +22,7 @@ lifecycle.
 ## Why not just paste the snippet?
 
 If a `<script>` in your `<head>` is all you need, paste
-[the snippet](https://chatlychat.com/docs/channel-web) and stop reading. This
+[the snippet](https://chatlychat.com/guides/channel-web) and stop reading. This
 package earns its keep when the widget's lifetime is tied to something your
 framework owns:
 
@@ -60,8 +60,12 @@ move, and a re-initialisation caused by a re-render that changed nothing.
 Attributes are live: change one and the element applies it. A changed
 `visitor` becomes an `identify()` and a changed `locale` a `setLocale()` —
 neither re-mounts the widget. A change to anything else re-initialises it,
-which closes an open panel (the widget has no `setTheme`; this is the honest
-cost, and it only happens when a value really changed).
+which closes an open panel — and it only happens when a value really changed.
+
+For a `theme` change there is a better route: `chat.controls.setTheme({
+colorScheme: 'dark' })` repaints an open panel in place with no network
+request. The attribute still re-initialises, because it describes a whole
+theme and a merge cannot un-apply a key you removed.
 
 ### `lazy` — deferring the bundle
 
@@ -187,14 +191,16 @@ ordering.
 
 `chat.controls` is the widget's post-boot method object, so a reference to the
 element is enough to drive the chat. It is also exported on its own as
-`controls`. Nineteen methods — the widget's `ChatlyApi` minus `init` and
-`destroy` (the element owns the lifecycle) and minus `on`/`off`, whose job
-`subscribe()` does below:
+`controls`. Twenty-one methods — the widget's `ChatlyApi` minus `init` and
+`destroy` (the element owns the lifecycle), minus `on`/`off`, whose job
+`subscribe()` does below, and minus `mount`/`unmount`, which add a second view
+outside the reference-counted lifecycle this package owns:
 
 `open`, `close`, `toggle`, `identify`, `setUser`, `setCustomAttributes`,
 `deleteCustomAttribute`, `setLabel`, `removeLabel`, `setLocale`, `track`,
-`registerPushToken`, `reset`, `setStorageConsent`, `getUnreadCount`,
-`hasSession`, `startConversation`, `setContext`, `reportAction`.
+`registerPushToken`, `reset`, `setStorageConsent`, `setOffset`, `setTheme`,
+`getUnreadCount`, `hasSession`, `startConversation`, `setContext`,
+`reportAction`.
 
 Two of those answer rather than act, and both are safe before the widget has
 mounted: `getUnreadCount()` is `0` and `hasSession()` is `false` until there is
@@ -349,5 +355,9 @@ fixed and we will port it with attribution.
 
 What you can do here: read the source, run the tests, open an issue, or open a PR
 and we will treat the diff as the proposal.
+
+Not mirrored: src/icon-names-parity.spec.ts — specs that assert a type restated here still
+matches the monorepo's original, which is only a meaningful claim inside it. They
+keep running there.
 
 Issues: https://github.com/chatlychat/chatly-widget-element/issues · Docs: https://chatlychat.com/docs

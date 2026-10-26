@@ -38,7 +38,9 @@
  * not both.
  */
 import { resetConflictWarning, warnOnConflict } from './conflict-warning.js';
+import { syncIdentityLoop } from './embed-identity.js';
 import { EVENT_HANDLERS, WIDGET_EVENT_NAMES } from './events.js';
+import { withResolvedIdentity, type IdentityLoop } from './identity-loop.js';
 import { injectLoader, loaderInjected, resetLoaderInjection } from './inject-loader.js';
 import { warnLateBootOption } from './lazy.js';
 import { sameOptions, sameValue } from './same-value.js';
@@ -118,6 +120,16 @@ interface MountState {
   lazy: ChatlyLazyMode | undefined;
   /** Likewise, and more so: a stamped script cannot be un-stamped. */
   nonce: string | undefined;
+  /**
+   * The running identity loop, or null when no claim configured one.
+   *
+   * Owned here rather than by the claim that asked for it, because it has a
+   * `visibilitychange` listener on `document` and exactly one of those should
+   * exist per mounted widget. It is started in `boot`, re-pointed in
+   * `reconcile` and stopped in `release` — the same three moments the mount
+   * itself has. See `identity-loop.ts`.
+   */
+  identity: IdentityLoop | null;
   /** Pending deferred teardown, cancelled by a remount. See `release`. */
   teardown: ReturnType<typeof setTimeout> | null;
 }
@@ -191,13 +203,12 @@ export function startWidget(
     loaderUrl: options.loaderUrl ?? DEFAULT_LOADER_URL,
     lazy: options.lazy,
     nonce: options.nonce,
+    identity: null,
     teardown: null,
   };
   boot(state);
   return handle;
 }
-
-/** Warned once per page: two mounted widgets asking for different things. */
 
 /** Install the shim, subscribe, queue the init, and fetch the loader. */
 function boot(mount: MountState): void {
@@ -260,6 +271,20 @@ function boot(mount: MountState): void {
     shim('setLocale', mount.active.locale);
   }
 
+  /*
+   * The identity loop (CHT-D10), started after the init is queued — the widget
+   * is told who it IS only once it has been told which channel it is on.
+   *
+   * The init is NOT delayed until the identity arrives, which was a choice.
+   * `loader.js` merges the queued init with its own slim one when the bundle
+   * lands (`queuedInit` in `apps/widget-loader/src/loader.ts`), and a bundle
+   * that arrives before a queued init exists is initialised from the shim
+   * properties alone — silently dropping the theme, behaviour and copy.
+   * Awaiting the host's identity route here would make that race real on
+   * every slow identity route.
+   */
+  syncIdentityLoop(mount, mount.active, dispatch);
+
   if (bundleAlreadyLoaded || preexisting || loaderInjected()) {
     return;
   }
@@ -268,13 +293,28 @@ function boot(mount: MountState): void {
 
 /** The options the widget's own `init` gets — ours, minus our own extras. */
 function initOptionsFor(options: ChatlyEmbedOptions): ChatlyInitOptions {
-  // `loaderUrl`, `lazy`, `nonce` and `locale` are this package's, not the
-  // widget's. Passing them through would be harmless today and a collision
-  // the day the widget adds a key of the same name, so they are stripped
-  // rather than ignored. `lazy` would be the worst of the four to leak: the
-  // widget ignores unknown options, so it would look like a setting that
-  // works.
-  const { loaderUrl: _loaderUrl, lazy: _lazy, nonce: _nonce, locale: _locale, ...init } = options;
+  // `loaderUrl`, `lazy`, `nonce`, `locale`, `identity` and `identityEndpoint`
+  // are this package's, not the widget's. Passing them through would be
+  // harmless today and a collision the day the widget adds a key of the same
+  // name, so they are stripped rather than ignored. `lazy` would be the worst
+  // to leak: the widget ignores unknown options, so it would look like a
+  // setting that works.
+  //
+  // Stripping the two identity keys does a second job that the comparison in
+  // `reconcile` depends on. `identity` is a FUNCTION, and an inline
+  // `identity={async () => …}` arrow is a new one on every React render — so
+  // left in, `sameOptions` would see a changed option and re-initialise the
+  // widget on every commit, closing the visitor's panel mid-sentence. The
+  // loop handles a changed provider itself, by refreshing.
+  const {
+    loaderUrl: _loaderUrl,
+    lazy: _lazy,
+    nonce: _nonce,
+    locale: _locale,
+    identity: _identity,
+    identityEndpoint: _identityEndpoint,
+    ...init
+  } = options;
   return init;
 }
 
@@ -405,12 +445,25 @@ function reconcile(): void {
       dispatch('off', event, forward);
       dispatch('on', event, forward);
     }
-    dispatch('init', initOptionsFor(next));
+    /*
+     * The re-init carries the identity loop's LAST ANSWER, not the `visitor`
+     * prop — CHT-D10's "called before any re-init". Without it, a
+     * `<ChatlyWidget identityEndpoint>` whose theme prop changed would re-init
+     * as whatever `visitor` said (usually nothing) and sit anonymous until the
+     * refresh landed. A synchronous substitution rather than an awaited
+     * refresh, because the answer is already in hand and a theme change should
+     * not wait on the host's identity route; `refresh()` below asks again.
+     */
+    dispatch('init', withResolvedIdentity(initOptionsFor(next), state.identity?.resolved()));
     if (next.locale !== undefined) {
       dispatch('setLocale', next.locale);
     }
+    syncIdentityLoop(state, next, dispatch);
+    state.identity?.refresh();
     return;
   }
+
+  syncIdentityLoop(state, next, dispatch);
 
   if (!sameValue(active.visitor, next.visitor)) {
     state.active = { ...state.active, visitor: next.visitor };
@@ -472,6 +525,13 @@ function release(claim: object): void {
     for (const [event, forward] of FORWARDERS) {
       dispatch('off', event, forward);
     }
+    // Before `destroy`, and not merely tidiness: the loop holds a
+    // `visibilitychange` listener on `document`, and one that outlived the
+    // widget would `identify()` into a torn-down `window.Chatly` on the next
+    // tab focus — printing "no widget is mounted" into the embedder's console
+    // for the rest of the page's life.
+    state.identity?.stop();
+    state.identity = null;
     dispatch('destroy');
     state = null;
   }, 0);
@@ -572,6 +632,10 @@ export const __testing = {
     if (state !== null && state.teardown !== null) {
       clearTimeout(state.teardown);
     }
+    // The loop's `visibilitychange` listener is on the shared `document`, so a
+    // suite that forgot this would accumulate one per test and the later ones
+    // would fire a stale provider at whatever the current test had mounted.
+    state?.identity?.stop();
     state = null;
     resetLoaderInjection();
     resetConflictWarning();

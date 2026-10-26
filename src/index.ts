@@ -28,6 +28,23 @@ export { startWidget, subscribe, DEFAULT_LOADER_URL, type ChatlyEmbedHandle } fr
  */
 export { prefetchWidget } from './lazy.js';
 /**
+ * The identity loop (CHT-D10) — the `~60 lines` three integrators each wrote.
+ *
+ * Nothing here has to be called: the loop is driven by the `identity` /
+ * `identityEndpoint` options on `<ChatlyWidget>`, `<ChatlyLauncher>`,
+ * `<chatly-widget>` and `startWidget`. These two exports are for a host
+ * writing its own provider — `ChatlyIdentityProvider` to type the function,
+ * `ChatlyIdentityAnswer` to type what its route answers — so neither has to
+ * be hand-declared beside a `fetch`.
+ *
+ * `startIdentityLoop` itself is deliberately NOT exported. It takes the
+ * dispatcher as a parameter and `embed.ts` owns the one that reaches the
+ * mounted widget; a host that started a second loop would hold a second
+ * `visibilitychange` listener the reference count knows nothing about, which
+ * is the same class of mistake as calling `init` behind the lifecycle's back.
+ */
+export type { ChatlyIdentityAnswer, ChatlyIdentityProvider } from './types.js';
+/**
  * Test-only. Resets the module's mount state between tests and reports what
  * it believes is mounted.
  *
@@ -56,6 +73,7 @@ export {
  */
 export { EVENT_HANDLERS, WIDGET_EVENT_NAMES, type ChatlyHandlerName } from './events.js';
 export type {
+  ChatlyAppearanceEvent,
   ChatlyBehavior,
   ChatlyCopy,
   ChatlyEmbedHandlers,

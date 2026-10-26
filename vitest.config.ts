@@ -1,7 +1,11 @@
 import { defineConfig } from 'vitest/config';
 
+const vitestExecution = { pool: 'threads' as const };
+
 export default defineConfig({
   test: {
+    // Worker THREADS, not forked processes. See @livechat/config/vitest.
+    ...vitestExecution,
     environment: 'jsdom',
     // A real URL rather than jsdom's `about:blank`, which is an OPAQUE origin
     // where `localStorage` is unavailable. Nothing here touches it directly,
