@@ -44,12 +44,14 @@ export interface LoaderShim {
    * bundle's own `hasSession()` read, so the stub and the loaded widget
    * cannot disagree about who is a returning visitor.
    *
-   * Assigned as THIS FILE evaluates, which is the caveat a caller has to
-   * know: the loader tag is `async`, so code running in the same tick as the
-   * snippet — or in a React effect in the same commit as the mount — asks
-   * before there is anything to ask, and `Chatly.hasSession` is still
-   * `undefined`. Read it from the loader tag's own `onload`, or from a
-   * button the visitor reaches later.
+   * WHO assigns it depends on how the widget got on the page, and that used
+   * to be a caveat: `loader.js` did, as it evaluated, and its tag is `async`
+   * — so code in the same tick as the snippet, or in a React effect in the
+   * same commit as the mount, asked before there was anything to ask and got
+   * `undefined`. For a plain snippet that is still the case: read it from the
+   * loader tag's own `onload`. Mounted through this package, `startWidget`
+   * installs it synchronously (`armLoaderFetch` in `defer-loader.ts`), from
+   * the same `hasStoredThread`, so a mount effect can ask.
    *
    * `manual` deliberately does NOT auto-load for a returning visitor, which
    * is what NCH-12 asked for and is declined on purpose: `manual` means "load

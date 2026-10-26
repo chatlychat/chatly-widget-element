@@ -75,10 +75,7 @@ import type { ChatlyEmbedOptions, ChatlyIdentity, ChatlyInitOptions } from './ty
  * refuses `{identity: x}` where a bare `ChatlyIdentity` is expected, rather
  * than silently accepting an envelope as an identity with no fields set.)
  */
-export type ChatlyIdentityAnswer =
-  | ChatlyIdentity
-  | null
-  | { identity: ChatlyIdentity | null };
+export type ChatlyIdentityAnswer = ChatlyIdentity | null | { identity: ChatlyIdentity | null };
 
 /**
  * Ask the host page who is signed in.
@@ -93,10 +90,7 @@ export type ChatlyIdentityProvider = () =>
   | undefined;
 
 /** What the loop is allowed to ask the widget to do. */
-export type IdentityDispatch = (
-  method: 'identify' | 'reset',
-  identity?: ChatlyIdentity,
-) => void;
+export type IdentityDispatch = (method: 'identify' | 'reset', identity?: ChatlyIdentity) => void;
 
 /**
  * A running loop.
@@ -140,8 +134,11 @@ function storageKey(publicId: string): string {
  * `apps/widget/src/client-identity.ts`), so a value here is a verified person
  * rather than a claim — which is exactly why it is worth comparing against
  * and why the host's own key never needed to exist.
+ *
+ * Exported because `embed-identity.ts` asks the same question at MOUNT, where
+ * no provider answers it: see `startIdentity` there.
  */
-function storedExternalId(publicId: string): string | null {
+export function storedExternalId(publicId: string): string | null {
   try {
     const value = window.localStorage.getItem(storageKey(publicId));
     return value === null || value === '' ? null : value;

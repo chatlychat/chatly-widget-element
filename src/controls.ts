@@ -134,16 +134,24 @@ export const controls = {
    * page can make the same decision — showing "continue your conversation"
    * rather than "chat with us", say.
    *
-   * **`false` until `loader.js` has evaluated**, which is later than it
-   * sounds and is the one trap on this method. `loader.js` is injected
-   * `async` by `startWidget`, and it is what defines `Chatly.hasSession` on
-   * the shim (the bundle replaces it with its own read of the same
-   * `chatly:vr:<publicId>` key later). So a React effect that runs in the
-   * same commit as the mount asks a question nothing can answer yet and gets
-   * the fallback — which is why `<ChatlyLauncher>` preloads for a returning
-   * chatter by choosing a `lazy` MODE the loader acts on itself, rather than
-   * by calling this and `load()`. Pair it with the `ready` event, or with a
-   * host button the visitor reaches some time after the page loaded.
+   * **Answerable immediately since 0.20.0**, and this comment used to say the
+   * opposite. It read "`false` until `loader.js` has evaluated", which was
+   * true while the loader was the thing that defined `Chatly.hasSession` on
+   * the shim: the script is injected `async`, so an effect in the same commit
+   * as the mount asked a question nothing could answer and got the fallback.
+   *
+   * `startWidget` installs it now (`defer-loader.ts`), synchronously, from
+   * the same `hasStoredThread` the loader used — it had to, because deferring
+   * the loader means a host in `lazy: 'manual'` would otherwise call
+   * `Chatly.hasSession()` and get `undefined is not a function`, which is the
+   * exact question that mode exists to answer. The bundle still replaces it
+   * with its own read of the same `chatly:vr:<publicId>` key on arrival, so
+   * all three implementations agree.
+   *
+   * `<ChatlyLauncher>` still preloads for a returning chatter by choosing a
+   * `lazy` MODE rather than by calling this and `load()`, and that remains
+   * the better shape: the mode is one decision the package acts on itself,
+   * where this is two calls a host has to sequence.
    */
   hasSession: (): boolean => read('hasSession', false),
   /**

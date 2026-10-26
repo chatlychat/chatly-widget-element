@@ -52,10 +52,21 @@ move, and a re-initialisation caused by a re-render that changed nothing.
 | `inline`         | Boolean. Mount the chat inside this element.             |
 | `theme`          | JSON.                                                    |
 | `behavior`       | JSON.                                                    |
-| `visitor`        | JSON.                                                    |
+| `visitor`        | JSON. `null` is "signed out" — see below.                |
 | `copy`           | JSON.                                                    |
 | `copy-by-locale` | JSON.                                                    |
 | `quick-links`    | JSON.                                                    |
+
+A `visitor` of `null` — `visitor="null"`, or `chat.visitor = null` — means
+"signed out", and it is checked **on mount** rather than only on a change. A
+page that loads already signed out never makes the identity→nothing transition
+a `reset()` needs, so the previous account's external id otherwise stays in the
+browser (the widget keeps it at `chatly:xid:<publicId>`); on a shared device
+that is the last person's identity outliving a sign-out from another tab. A
+`visitor` that is simply ABSENT still changes nothing, deliberately: it cannot
+be told apart from "identity has not resolved yet", and resetting on that would
+drop a live conversation on every slow auth check. Ignored when
+`identity-endpoint` (or an `identity` provider) is set.
 
 Attributes are live: change one and the element applies it. A changed
 `visitor` becomes an `identify()` and a changed `locale` a `setLocale()` —
@@ -232,10 +243,23 @@ mounted: `getUnreadCount()` is `0` and `hasSession()` is `false` until there is
 something to ask. Pair `getUnreadCount()` with the `unread` event rather than
 polling it.
 
-`hasSession()` is answerable earlier than the rest — `loader.js` defines it on
-the shim before `widget.js` exists, so a `lazy="manual"` page can use it to
-decide. But not immediately: the loader tag is `async`, so a read in the same
-tick as the mount still gets `false`. Ask on an interaction, or from `ready`.
+The other nineteen ACT, and a call made before a widget mounts is held rather
+than dropped (0.21.0): it is queued and replayed as soon as one mounts, so a
+host-page button that renders before `<chatly-widget>` keeps its first click.
+One console warning says the call was queued — a page that never mounts a
+widget still gets nothing.
+
+`load` is NOT on `controls`, deliberately: it is the loader's verb, not the
+widget's, and `controls` mirrors `ChatlyApi` exactly. Use `prefetchWidget()`,
+exported alongside it.
+
+`hasSession()` is answerable earlier than the rest, so a `lazy="manual"` page
+can use it to decide — and since 0.20.0 it is answerable **immediately**:
+`startWidget` installs it on the shim synchronously, from the same stored-thread
+key `loader.js` and the bundle read, so a read in the mount commit is fine. It
+used to be the loader's alone, and the loader tag is `async`, so that read got
+`false`. A plain snippet with no element on the page still has to wait for the
+loader — see the `onload` example above.
 
 `init` and `destroy` are deliberately absent: the element owns the lifecycle,
 and calling them behind its back leaves it believing a widget is mounted that

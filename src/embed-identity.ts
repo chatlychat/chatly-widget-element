@@ -33,7 +33,12 @@
  * behind exactly that kind of green suite, and the fix was to assert on the
  * request rather than on the canned response.
  */
-import { startIdentityLoop, type IdentityDispatch, type IdentityLoop } from './identity-loop.js';
+import {
+  startIdentityLoop,
+  storedExternalId,
+  type IdentityDispatch,
+  type IdentityLoop,
+} from './identity-loop.js';
 
 import type { ChatlyEmbedOptions, ChatlyIdentity } from './types.js';
 
@@ -94,4 +99,75 @@ export function syncIdentityLoop(
     return;
   }
   holder.identity.update(next);
+}
+
+/**
+ * The visitor prop changed. Sign in, or sign out.
+ *
+ * A host that renders `visitor={user ?? undefined}` is describing a sign-OUT
+ * when it goes away, and `identify(undefined)` is not a thing. `reset()` is:
+ * it forgets this visitor and boots a fresh anonymous session, and it drops
+ * the identity permanently so the re-boot cannot resurrect the person who
+ * just left.
+ *
+ * `null` is treated the same as a disappearing `undefined`, which is the
+ * declarative half of the same statement — see `startIdentity`.
+ */
+export function identifyOrReset(
+  visitor: ChatlyIdentity | null | undefined,
+  dispatch: Dispatch,
+): void {
+  if (visitor === undefined || visitor === null) {
+    dispatch('reset');
+    return;
+  }
+  dispatch('identify', visitor);
+}
+
+/**
+ * Start the identity machinery for a FRESH mount.
+ *
+ * Two things, and the second is the one with a privacy argument behind it
+ * (NPOL-4). `reset()` on a sign-out works today only as a TRANSITION: a
+ * `visitor` prop that held an identity and then went away. A page that loads
+ * already signed out never makes that transition, so the previous account's
+ * `chatly:xid:<publicId>` — the external id the widget was last verified as —
+ * survives in the browser. On a shared device that is the last person's
+ * identity outliving a sign-out that happened in another tab, which is why
+ * integrators were keeping a "who was identified" key of their own and
+ * resetting by hand.
+ *
+ * **An absent `visitor` still means nothing**, and an explicit `null` is what
+ * means signed out. That asymmetry is the whole of the opt-in: the widget
+ * cannot otherwise tell "the host signed this person out" from "the host has
+ * not resolved identity yet", and the second is the common case — a host
+ * whose identity route is slow renders one commit with no `visitor` at all.
+ * Resetting on that would drop a live session on every slow endpoint. It is
+ * the same rule, and the same reason, as THE ONE RULE in `identity-loop.ts`.
+ *
+ * Skipped when a provider is running, because the provider is the authority
+ * on who is signed in and it is already asking: resetting here would flash an
+ * anonymous widget and cost a round trip before its answer lands. Reading
+ * `holder.identity` rather than re-deriving the provider is deliberate —
+ * `identityProviderFor` WARNS when both `identity` and `identityEndpoint` are
+ * set, and asking it twice would print that warning twice.
+ *
+ * Boot only, not every reconcile. A reconcile already handles a changed
+ * `visitor` through `identifyOrReset`, and running this there would reset a
+ * session a host had identified imperatively with `Chatly('identify', …)`
+ * while holding `visitor={null}`.
+ */
+export function startIdentity(
+  holder: IdentityHolder,
+  options: ChatlyEmbedOptions,
+  dispatch: Dispatch,
+): void {
+  syncIdentityLoop(holder, options, dispatch);
+  if (
+    holder.identity === null &&
+    options.visitor === null &&
+    storedExternalId(options.publicId) !== null
+  ) {
+    dispatch('reset');
+  }
 }

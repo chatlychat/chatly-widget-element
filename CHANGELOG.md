@@ -1,5 +1,21 @@
 # @chatlychat/widget-element — changelog
 
+## 0.22.0 — 2026-10-26
+
+**`visitor: null` now means "signed out", and it is a privacy fix.** `reset()` on a sign-out has only ever worked as a TRANSITION — `visitor` held an identity and then went away. A page that loads already signed out never makes that transition, so the previous account's external id stayed in the browser (the widget keeps it at `chatly:xid:<publicId>` to spot an account switch). On a shared device that is the last person's identity outliving a sign-out that happened in another tab or another session, which is why integrators were keeping a "who was identified" key of their own and calling `reset()` by hand.
+
+Pass `null` — `visitor={null}`, `visitor="null"`, `el.visitor = null` — and the widget compares its own stored identity on mount and resets itself if one is there. No host-side `localStorage` key is needed for it.
+
+**An ABSENT `visitor` is unchanged and still does nothing.** That asymmetry is the whole of the opt-in: the widget cannot tell "the host signed this person out" from "the host has not resolved identity yet", and the second is the common case — a reset on it would drop a live conversation every time an auth check is slow. `null` is also ignored when `identity` or `identityEndpoint` is set, because a provider answers the same question under the same rule and is already asking; resetting first would flash an anonymous widget and cost a round trip.
+
+`null` is this package's spelling and not the widget's: it is stripped before the option reaches `Chatly('init')`, which takes an identity or no key at all.
+
+## 0.21.0 — 2026-10-26
+
+**A call made before a widget has mounted is no longer dropped.** `controls.open()` from a "Chat with us" link that renders before `<chatly-widget>` (or before `<ChatlyWidget>`, one layer up) used to warn and go nowhere, so the visitor's first click was lost unless the host page buffered it themselves. It is now queued and replayed as soon as a widget mounts — the same thing the loader's own shim does for pre-bundle calls, one step earlier. One console warning still says the call was queued, because a page that never mounts a widget still gets nothing.
+
+The queue lives in `dispatch`, not in a shim installed at import time: both published packages declare `"sideEffects": false`, so an import-time shim would be legal for a consumer's bundler to tree-shake away — working in development and vanishing in a production build — and would make this package unimportable from a server bundle.
+
 ## 0.20.0 — 2026-10-26
 
 **Behaviour change, and it is a privacy fix.** `lazy` in any mode but `'off'` now makes NO request to any Chatly host until the visitor reaches for the chat — `load()`, `open()`, the stand-in launcher being clicked, or the first page interaction. Previously every mode fetched `loader.js` on page load, `'manual'` included, whose documented promise is that nothing loads until you call `load()`; that request carries the visitor's IP address, user agent and referrer, so a page with `lazy="manual"` still announced the visitor before they touched anything.

@@ -39,12 +39,32 @@ function argsFor(method: string): unknown[][] {
 
 const BASE: ChatlyEmbedOptions = { publicId: 'acme-web' };
 
+/**
+ * A `localStorage` of our own, for the same reason `identity-loop.spec.ts`
+ * installs one: jsdom under Node does NOT provide `window.localStorage` here,
+ * so `typeof window.localStorage` is `'undefined'` and every read of the key
+ * the mount compares against would take the guarded branch. That is the shape
+ * of test that passes against an implementation which never reads storage.
+ */
+const STORE = new Map<string, string>();
+Object.defineProperty(window, 'localStorage', {
+  configurable: true,
+  get: () => ({
+    getItem: (key: string): string | null => STORE.get(key) ?? null,
+    setItem: (key: string, value: string): void => void STORE.set(key, value),
+    removeItem: (key: string): void => void STORE.delete(key),
+    clear: (): void => STORE.clear(),
+  }),
+});
+const XID_KEY = `chatly:xid:${BASE.publicId}`;
+
 beforeEach(() => {
   vi.useFakeTimers();
   document.head.innerHTML = '';
   delete w.Chatly;
   __testing.reset();
   installShim();
+  STORE.clear();
 });
 
 afterEach(() => {
@@ -376,7 +396,57 @@ describe('controls', () => {
     delete w.Chatly;
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     expect(() => controls.open()).not.toThrow();
-    expect(warn.mock.calls.flat().join(' ')).toContain('no widget is mounted');
+    expect(warn.mock.calls.flat().join(' ')).toContain('before a widget was mounted');
+  });
+
+  /*
+   * NPOL-5. A "Chat with us" link that renders before `<ChatlyWidget>` — a
+   * header above the component, or a shell rendered while the channel id is
+   * still being fetched — used to lose the click outright: `dispatch` warned
+   * and dropped it.
+   *
+   * The assertions are on what was SENT and in what ORDER, not merely that
+   * something was. A replay that landed before the widget's own `init` would
+   * be dropped by the bundle for a reason nobody could see from the outside,
+   * and the queue would look like it worked.
+   */
+  it('queues a call made before anything mounted and replays it after init', () => {
+    delete w.Chatly;
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    controls.open('help');
+    controls.track('pricing_viewed', { plan: 'pro' });
+
+    installShim();
+    startWidget({}, BASE);
+
+    expect(argsFor('open')).toEqual([['help']]);
+    expect(argsFor('track')).toEqual([['pricing_viewed', { plan: 'pro' }]]);
+    const order = calls.map((c) => c[0]);
+    expect(order.indexOf('open')).toBeGreaterThan(order.indexOf('init'));
+    // FIFO: the first click the visitor gave is the first one replayed.
+    expect(order.indexOf('open')).toBeLessThan(order.indexOf('track'));
+  });
+
+  it('warns once, not once per queued call', () => {
+    delete w.Chatly;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    controls.open();
+    controls.open();
+    controls.close();
+    // A header button on a page whose widget mounts late must not fill the
+    // embedder's console — one line is the diagnostic, three is noise.
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('replays through a shim this package did not install', () => {
+    // The host pasted the snippet as well, so `boot` never runs its drain —
+    // the next successful dispatch is what has to carry the queue.
+    delete w.Chatly;
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    controls.open('messages');
+    installShim();
+    controls.close();
+    expect(calls).toEqual([['open', 'messages'], ['close']]);
   });
 
   it('dispatches through the callable form, which works queued or live', () => {
@@ -399,5 +469,84 @@ describe('controls', () => {
     startWidget({}, BASE);
     controls.setOffset({ y: 120, panelY: 60 });
     expect(argsFor('setOffset')).toEqual([[{ y: 120, panelY: 60 }]]);
+  });
+});
+
+describe('a page that loads already signed out (NPOL-4)', () => {
+  /*
+   * ═══ WHY THIS IS A PRIVACY TEST ═══════════════════════════════════════
+   *
+   * `reset()` on sign-out works as a TRANSITION only: `visitor` held an
+   * identity and then went away. A page loaded already signed out never makes
+   * that transition, so `chatly:xid:<publicId>` — the external id the widget
+   * was last VERIFIED as — survives in the browser. On a shared device that is
+   * the previous account's identity outliving a sign-out that happened in
+   * another tab.
+   *
+   * Every assertion below is on what was DISPATCHED, not on a canned reply:
+   * the shim records, it does not answer.
+   */
+  it('resets when the host says `visitor: null` and an identity is stored', () => {
+    STORE.set(XID_KEY, 'u_previous');
+    startWidget({}, { ...BASE, visitor: null });
+    expect(argsFor('reset')).toHaveLength(1);
+    // And the widget is NOT told about a `visitor` key at all — `init` takes
+    // an identity or nothing, never an empty one.
+    expect(argsFor('init')).toEqual([[{ publicId: 'acme-web' }]]);
+  });
+
+  it('changes nothing when `visitor` is merely ABSENT', () => {
+    /*
+     * The control that makes the opt-in an opt-in, and the regression that
+     * would hurt most. A host whose auth check has not resolved renders one
+     * commit with no `visitor`; "signed out" and "not resolved yet" are the
+     * same value in JavaScript unless something keeps them apart. Resetting
+     * here would drop a live conversation on every slow identity endpoint.
+     */
+    STORE.set(XID_KEY, 'u_previous');
+    startWidget({}, BASE);
+    expect(argsFor('reset')).toEqual([]);
+  });
+
+  it('changes nothing on `visitor: null` with no stored identity', () => {
+    /*
+     * There is nothing of a person to forget, and `reset()` would throw away
+     * the ANONYMOUS session this visitor is using right now — including a
+     * conversation they started before signing in, which the widget keeps on
+     * purpose so it follows them onto their contact.
+     */
+    startWidget({}, { ...BASE, visitor: null });
+    expect(argsFor('reset')).toEqual([]);
+  });
+
+  it('leaves it to the provider when one is configured', () => {
+    /*
+     * A provider is the authority on who is signed in and it is already
+     * asking, under the same rule. Resetting here first would flash an
+     * anonymous widget and cost a round trip before its answer lands.
+     */
+    STORE.set(XID_KEY, 'u_previous');
+    startWidget({}, { ...BASE, visitor: null, identityEndpoint: '/api/chatly/identity' });
+    expect(argsFor('reset')).toEqual([]);
+  });
+
+  it('resets on a prop going to null, like one going to undefined', () => {
+    const claim = {};
+    const handle = startWidget(claim, { ...BASE, visitor: { externalId: 'u_1' } });
+    // Carried in the boot `init`, which is where an identity known at mount
+    // goes — no extra round trip.
+    expect(argsFor('init')).toEqual([[{ publicId: 'acme-web', visitor: { externalId: 'u_1' } }]]);
+    handle.update({ ...BASE, visitor: null });
+    expect(argsFor('reset')).toHaveLength(1);
+  });
+
+  it('does not re-initialise over a null visitor', () => {
+    // `visitor` is excluded from the structural comparison, and a `null` must
+    // not sneak back into it through `initOptionsFor` — a re-init closes the
+    // visitor's open panel mid-sentence.
+    const claim = {};
+    const handle = startWidget(claim, { ...BASE, visitor: null });
+    handle.update({ ...BASE, visitor: null });
+    expect(argsFor('init')).toHaveLength(1);
   });
 });

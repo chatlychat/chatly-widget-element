@@ -234,7 +234,8 @@ const PROPERTY_NAMES: readonly string[] = [
 export interface ChatlyWidgetElement extends HTMLElement {
   theme?: ChatlyTheme;
   behavior?: ChatlyBehavior;
-  visitor?: ChatlyIdentity;
+  /** `null` is "signed out" — see `ChatlyEmbedOptions.visitor`. */
+  visitor?: ChatlyIdentity | null;
   copy?: ChatlyCopy;
   copyByLocale?: Record<string, ChatlyCopy>;
   quickLinks?: ChatlyQuickLink[];
@@ -403,10 +404,10 @@ function buildElementClass(): CustomElementConstructor {
       this.#setProp('behavior', value);
     }
 
-    public get visitor(): ChatlyIdentity | undefined {
-      return this.#props.get('visitor') as ChatlyIdentity | undefined;
+    public get visitor(): ChatlyIdentity | null | undefined {
+      return this.#props.get('visitor') as ChatlyIdentity | null | undefined;
     }
-    public set visitor(value: ChatlyIdentity | undefined) {
+    public set visitor(value: ChatlyIdentity | null | undefined) {
       this.#setProp('visitor', value);
     }
 

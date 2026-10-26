@@ -417,7 +417,39 @@ export interface ChatlyEmbedHandlers {
 export type ChatlyLazyMode = boolean | 'launcher' | 'interaction' | 'manual';
 
 /** Where `loader.js` is served from, plus the init options. */
-export interface ChatlyEmbedOptions extends ChatlyInitOptions {
+export interface ChatlyEmbedOptions extends Omit<ChatlyInitOptions, 'visitor'> {
+  /**
+   * Who is signed in — or `null` for "nobody, and I mean it".
+   *
+   * An identity calls `identify()`. Dropping it calls `reset()`. Both of
+   * those are TRANSITIONS, which leaves one case they cannot cover: a page
+   * that loads already signed out never makes a transition, so the previous
+   * account's external id stays in this browser (the widget keeps it at
+   * `chatly:xid:<publicId>`). On a shared device that is the last person's
+   * identity surviving a sign-out that happened in another tab.
+   *
+   * Pass `visitor={null}` — never merely leave it out — and the widget
+   * compares its own stored identity on mount and resets itself if one is
+   * there. An ABSENT `visitor` still changes nothing, deliberately: the
+   * widget cannot tell it apart from "identity has not resolved yet", and a
+   * reset on that would drop a live conversation every time your auth check
+   * is slow. So:
+   *
+   *     // signed out, and say so
+   *     <ChatlyWidget publicId="acme-web" visitor={user ? {…} : null} />
+   *
+   *     // still resolving — pass nothing, change nothing
+   *     <ChatlyWidget publicId="acme-web" visitor={user ? {…} : undefined} />
+   *
+   * Ignored when `identity` or `identityEndpoint` is set: a provider is the
+   * authority on who is signed in and answers the same question with the same
+   * rule, so this would only duplicate it one round trip early.
+   *
+   * `null` is this package's spelling and not the widget's — `Chatly('init')`
+   * takes an identity or no key at all, and a `null` here is stripped before
+   * the option reaches it.
+   */
+  visitor?: ChatlyIdentity | null;
   /**
    * The loader script URL.
    *

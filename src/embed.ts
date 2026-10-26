@@ -34,18 +34,18 @@
  */
 import { resetConflictWarning, warnOnConflict } from './conflict-warning.js';
 import { armLoaderFetch } from './defer-loader.js';
-import { syncIdentityLoop } from './embed-identity.js';
+import { identifyOrReset, startIdentity, syncIdentityLoop } from './embed-identity.js';
 import { EVENT_HANDLERS, WIDGET_EVENT_NAMES } from './events.js';
 import { withResolvedIdentity, type IdentityLoop } from './identity-loop.js';
 import { loaderInjected, resetLoaderInjection } from './inject-loader.js';
 import { warnLateBootOption } from './lazy.js';
+import { drainPending, queueUntilMounted, resetPending } from './pending-calls.js';
 import { sameOptions, sameValue } from './same-value.js';
 
 import type {
   ChatlyEmbedHandlers,
   ChatlyEmbedOptions,
   ChatlyEventName,
-  ChatlyIdentity,
   ChatlyInitOptions,
   ChatlyLazyMode,
 } from './types.js';
@@ -269,6 +269,7 @@ function boot(mount: MountState): void {
   if (mount.active.locale !== undefined) {
     shim('setLocale', mount.active.locale);
   }
+  drainPending(shim);
 
   /*
    * The identity loop (CHT-D10), started after the init is queued — the widget
@@ -281,7 +282,7 @@ function boot(mount: MountState): void {
    * Awaiting the host's identity route would make that race real on every
    * slow one.
    */
-  syncIdentityLoop(mount, mount.active, dispatch);
+  startIdentity(mount, mount.active, dispatch);
 
   if (bundleAlreadyLoaded || preexisting || loaderInjected()) {
     return;
@@ -310,25 +311,27 @@ function initOptionsFor(options: ChatlyEmbedOptions): ChatlyInitOptions {
     locale: _locale,
     identity: _identity,
     identityEndpoint: _identityEndpoint,
+    visitor,
     ...init
   } = options;
-  return init;
+  // `visitor: null` is THIS package's "signed out" (see `startIdentity`) and
+  // not a widget option: the widget's `init` takes an identity or no key at
+  // all, and an empty one would name nobody while looking like somebody.
+  return visitor === undefined || visitor === null ? init : { ...init, visitor };
 }
 
-/** Dispatch through the callable form, which works queued or live. */
+/**
+ * Dispatch through the callable form, which works queued or live — and, with
+ * no shim at all yet, held until one exists. See `pending-calls.ts`.
+ */
 export function dispatch(method: string, ...args: unknown[]): void {
-  const w = embedWindow();
-  const chatly = w?.Chatly;
+  const chatly = embedWindow()?.Chatly;
   if (typeof chatly !== 'function') {
-    // Not an exception: a header button wired to `open()` on a page where no
-    // widget is mounted is a configuration mistake, not a reason to break the
-    // host page's click handler.
-    console.warn(
-      `[Chatly] ${method}() ignored — no widget is mounted. ` +
-        'Mount <ChatlyWidget> (or <chatly-widget>) before calling it.',
-    );
+    queueUntilMounted(method, args);
     return;
   }
+  // Covers a shim that arrived without our `boot`: the host pasted the snippet.
+  drainPending(chatly);
   chatly(method, ...args);
 }
 
@@ -343,8 +346,7 @@ export function dispatch(method: string, ...args: unknown[]): void {
  * would fill the console on every page that draws one.
  *
  * `window.Chatly` is `Object.assign(dispatch, api)` — callable AND an object
- * of methods — so the method is read straight off it rather than going
- * through the queue, which has no way to return anything.
+ * of methods — so the method is read off it, not through a returnless queue.
  *
  * Both fallbacks are the "nothing yet" answer AND the safe one: no badge,
  * and not a returning visitor.
@@ -464,7 +466,7 @@ function reconcile(): void {
 
   if (!sameValue(active.visitor, next.visitor)) {
     state.active = { ...state.active, visitor: next.visitor };
-    identifyOrReset(next.visitor);
+    identifyOrReset(next.visitor, dispatch);
   }
   if (active.locale !== next.locale) {
     state.active = { ...state.active, locale: next.locale };
@@ -475,23 +477,6 @@ function reconcile(): void {
     // there is no "unset locale" call, and `setLocale('')` would warn about a
     // missing bundle. The last explicit locale stays in force.
   }
-}
-
-/**
- * The visitor prop changed. Sign in, or sign out.
- *
- * A host that renders `visitor={user ?? undefined}` is describing a sign-OUT
- * when it goes away, and `identify(undefined)` is not a thing. `reset()` is:
- * it forgets this visitor and boots a fresh anonymous session, and it drops
- * the identity permanently so the re-boot cannot resurrect the person who
- * just left.
- */
-function identifyOrReset(visitor: ChatlyIdentity | undefined): void {
-  if (visitor === undefined) {
-    dispatch('reset');
-    return;
-  }
-  dispatch('identify', visitor);
 }
 
 /**
@@ -639,6 +624,7 @@ export const __testing = {
     state = null;
     resetLoaderInjection();
     resetConflictWarning();
+    resetPending();
   },
   claimCount(): number {
     return state?.claims.size ?? 0;
