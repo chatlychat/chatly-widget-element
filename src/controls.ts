@@ -61,13 +61,65 @@ export const controls = {
   ): void => dispatch('registerPushToken', platform, token, appVersion),
   reset: (): void => dispatch('reset'),
   /**
+   * The same thing as `reset`, under the name a sign-out button wants.
+   *
+   * One dispatch each and indistinguishable at the widget. It exists because
+   * three products in a row read `reset` as "clear the widget's state" and
+   * wrote their own sign-out bookkeeping beside it. Neither deletes anything
+   * on the server: the person's conversation stays on their contact and comes
+   * back when they identify again.
+   *
+   * It shipped on `ChatlyApi` in `@chatlychat/sdk-js` and never reached this
+   * object, so `check-widget-wrapper-parity` was red — a consumer of the
+   * wrapper got a type error for a call the widget honours.
+   */
+  logout: (): void => dispatch('logout'),
+  /**
    * Grant or withhold consent to use the visitor's browser storage.
    *
    * The call a consent banner makes. Withholding purges what is already
    * stored; granting allows writes from that moment on and replays nothing.
-   * See the `storage` embed option.
+   * See the `storage` embed option. An object decides per category; the
+   * consent-manifest names `preferences` and `statistics` are aliases of
+   * `functional` and `analytics`, and `necessary` is ignored.
    */
-  setStorageConsent: (granted: boolean): void => dispatch('setStorageConsent', granted),
+  setStorageConsent: (
+    granted:
+      | boolean
+      | {
+          functional?: boolean;
+          analytics?: boolean;
+          marketing?: boolean;
+          preferences?: boolean;
+          statistics?: boolean;
+        },
+  ): void => dispatch('setStorageConsent', granted),
+  /**
+   * Inspect, rewrite or stop a message the visitor is about to send.
+   *
+   * Synchronous; the handler returns `{ text }` to send that instead, `null`
+   * to stop the send, or nothing to let it through. `null` in place of the
+   * handler unregisters. Not called for a quick-reply button, and a handler
+   * that throws sends the message unchanged.
+   */
+  beforeMessageSent: (
+    handler: ((m: { readonly text: string }) => { readonly text?: string } | null | void) | null,
+  ): void => dispatch('beforeMessageSent', handler),
+  /**
+   * Hide a message from the visitor's transcript.
+   *
+   * Synchronous; only an explicit `false` hides it. It cannot edit a message
+   * or change who it is from — shape your own outbound text with
+   * `beforeMessageSent`; for inbound the answer is yes or no.
+   */
+  beforeMessageDisplay: (
+    handler:
+      | ((m: {
+          readonly text: string;
+          readonly from: 'visitor' | 'agent' | 'bot' | 'system';
+        }) => boolean | void)
+      | null,
+  ): void => dispatch('beforeMessageDisplay', handler),
   /**
    * Report a consent decision per category: `true` granted, `false` refused,
    * `null` undecided, omitted unchanged. See the `consent` embed option.
@@ -181,6 +233,15 @@ export const controls = {
     contextToken?: string;
   }): void => dispatch('setContext', input),
   /**
+   * Where the visitor is, for a router that never touches the History API.
+   *
+   * The widget follows `pushState`, `replaceState` and `popstate` by itself,
+   * so this is only needed by a hash router or any route that is not the
+   * URL. It writes the same `page` facet as `setContext({ page })`.
+   * There is no `title` — Chatly keeps the path and the url only.
+   */
+  page: (input: { path?: string; url?: string }): void => dispatch('page', input),
+  /**
    * Report what your page did with a `host_event`, back into the thread.
    *
    * Pass back the `messageId` and `actionId` the `action` event handed you.
@@ -195,4 +256,38 @@ export const controls = {
     blocks?: unknown;
     data?: Record<string, unknown>;
   }): void => dispatch('reportAction', input),
+  /**
+   * What is in the visitor's basket. Each call REPLACES it.
+   *
+   * `price` and `total` are MINOR UNITS — 4820 is $48.20, and also ¥4,820,
+   * and also 4.820 KWD. The same contract a card's price has, and for the same
+   * reason: `48.20` is a float and 0.1 + 0.2 is why a basket total renders two
+   * different ways on two screens.
+   */
+  setCart: (input: {
+    items?: Array<{
+      name: string;
+      id?: string;
+      variant?: string;
+      quantity?: number;
+      price?: number;
+    }>;
+    total?: number;
+    currency?: string;
+    url?: string;
+    id?: string;
+  }): void => dispatch('setCart', input),
+  /**
+   * An order placed, or a line added to or removed from the basket.
+   *
+   * The cart last given to `setCart` travels with it, so an order event
+   * carries the basket that produced it. `total` is MINOR UNITS.
+   */
+  trackSale: (input: {
+    kind: 'order_created' | 'cart_add' | 'cart_remove';
+    total?: number;
+    currency?: string;
+    orderId?: string;
+    item?: { name: string; id?: string; variant?: string; quantity?: number; price?: number };
+  }): void => dispatch('trackSale', input),
 } as const;

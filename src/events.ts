@@ -61,6 +61,8 @@ export const EVENT_HANDLERS = {
   notice: 'onNotice',
   error: 'onError',
   profile: 'onProfile',
+  'context.invalid': 'onContextInvalid',
+  'context.expired': 'onContextExpired',
 } as const satisfies Record<ChatlyEventName, keyof ChatlyEmbedHandlers>;
 
 /** The handler names, as a union — `'onReady' | 'onOpen' | …`. */

@@ -135,14 +135,51 @@ describe('normalizeAnswer', () => {
     expect(normalizeAnswer({})).toBeUndefined();
   });
 
-  it('refuses an identity with no externalId', () => {
+  it('refuses an identity that names nobody', () => {
     /*
-     * `externalId` is the only field contacts are matched on. `{email}` alone
-     * would attach that email to whichever contact this browser's session
-     * already holds — somebody else's, on a shared device.
+     * `{email}` alone is a claim the PAGE typed, so it would attach that
+     * address to whichever contact this browser's session already holds —
+     * somebody else's, on a shared device.
+     *
+     * CONTROL: drop the `given(identity.externalId)` guard from
+     * `namesSomebody` so it returns true for anything, and both of these
+     * stop being `undefined`. The empty-string case is the one that catches
+     * a `typeof === 'string'` test written without the `!== ''` half.
      */
     expect(normalizeAnswer({ identity: { email: 'a@b.test' } })).toBeUndefined();
     expect(normalizeAnswer({ identity: { externalId: '' } })).toBeUndefined();
+    expect(normalizeAnswer({ identity: { userToken: '' } })).toBeUndefined();
+    expect(normalizeAnswer({ identity: { identityToken: '' } })).toBeUndefined();
+  });
+
+  it('accepts an identity whose only name is a signed credential', () => {
+    /*
+     * The OIDC answer, and the reason this test exists: the documented route
+     * shape for `identityVerification.mode: 'oidc'` is
+     * `{identity: {userToken}}` with NO `externalId` — the `sub` inside the
+     * token is the external id and only the server opens it. Requiring an
+     * external id here made the whole OIDC mode unreachable through this
+     * package while the server had been accepting it for a day (FormFlow,
+     * 2026-11-03), and the integrator saw no error from anyone because no
+     * request was ever made.
+     *
+     * `identityToken` is IDV v2 and `getToken` is the per-request minter;
+     * all three name somebody the same way, in a `sub` somebody's key stands
+     * behind.
+     *
+     * CONTROL: put the `externalId` requirement back — `if (typeof
+     * identity.externalId !== 'string' || identity.externalId === '')
+     * return undefined` — and all four of these go `undefined`.
+     */
+    const token = { userToken: 'eyJhbGciOi.payload.sig' };
+    expect(normalizeAnswer({ identity: token })).toEqual(token);
+    expect(normalizeAnswer(token)).toEqual(token);
+
+    const v2 = { identityToken: 'eyJhbGciOi.v2.sig' };
+    expect(normalizeAnswer({ identity: v2 })).toEqual(v2);
+
+    const minter = { getToken: () => 'eyJhbGciOi.minted.sig' };
+    expect(normalizeAnswer({ identity: minter })).toEqual(minter);
   });
 
   it('refuses a non-object answer', () => {

@@ -40,6 +40,7 @@ import { withResolvedIdentity, type IdentityLoop } from './identity-loop.js';
 import { loaderInjected, resetLoaderInjection } from './inject-loader.js';
 import { warnLateBootOption } from './lazy.js';
 import { drainPending, queueUntilMounted, resetPending } from './pending-calls.js';
+import { initOptionsFor } from './init-options.js';
 import { sameOptions, sameValue } from './same-value.js';
 import { themeDelta } from './theme-delta.js';
 
@@ -295,34 +296,6 @@ function boot(mount: MountState): void {
   mount.disarmLazy = armLoaderFetch(shim, mount);
 }
 
-/** The options the widget's own `init` gets — ours, minus our own extras. */
-function initOptionsFor(options: ChatlyEmbedOptions): ChatlyInitOptions {
-  // `loaderUrl`, `lazy`, `nonce`, `locale`, `identity` and `identityEndpoint`
-  // are this package's, not the widget's — stripped rather than ignored,
-  // because the widget drops unknown options silently and a leaked `lazy`
-  // would look like a setting that works.
-  //
-  // Stripping the two identity keys does a second job `reconcile`'s
-  // comparison depends on: `identity` is a FUNCTION, and an inline
-  // `identity={async () => …}` arrow is new on every React render, so left in
-  // it would re-initialise the widget on every commit and close the visitor's
-  // panel mid-sentence. The loop handles a changed provider by refreshing.
-  const {
-    loaderUrl: _loaderUrl,
-    lazy: _lazy,
-    nonce: _nonce,
-    locale: _locale,
-    identity: _identity,
-    identityEndpoint: _identityEndpoint,
-    visitor,
-    ...init
-  } = options;
-  // `visitor: null` is THIS package's "signed out" (see `startIdentity`) and
-  // not a widget option: the widget's `init` takes an identity or no key at
-  // all, and an empty one would name nobody while looking like somebody.
-  return visitor === undefined || visitor === null ? init : { ...init, visitor };
-}
-
 /**
  * Dispatch through the callable form, which works queued or live — and, with
  * no shim at all yet, held until one exists. See `pending-calls.ts`.
@@ -433,11 +406,17 @@ function reconcile(): void {
     warnLateBootOption('nonce', state.nonce, next.nonce);
     state.nonce = next.nonce;
   }
-  // Live `setTheme` unless a key was dropped — see `theme-delta.ts`.
+  /*
+   * A `theme` change is ALWAYS live now, dropped keys included — see
+   * `theme-delta.ts` for why an explicit `undefined` replaced the re-init
+   * this used to force (NPOL-2). `theme` is still excluded from
+   * `sameOptions` below, which is what keeps it out of the init comparison.
+   */
   const theme = themeDelta(active.theme, next.theme);
-  const initChanged =
-    theme.removed ||
-    !sameOptions(initOptionsFor(active), initOptionsFor(next), ['visitor', 'theme']);
+  const initChanged = !sameOptions(initOptionsFor(active), initOptionsFor(next), [
+    'visitor',
+    'theme',
+  ]);
   if (initChanged) {
     state.active = next;
     for (const [event, forward] of FORWARDERS) {
@@ -458,8 +437,7 @@ function reconcile(): void {
      * not wait on the host's identity route; `refresh()` below asks again.
      */
     dispatch('init', withResolvedIdentity(initOptionsFor(next), state.identity?.resolved()));
-    // The override layer outlives `init` and outranks it: re-assert. Limit: a
-    // live-set key that is now REMOVED keeps its value until a page load.
+    // The override layer outlives `init` and outranks it: re-assert.
     if (state.themePushed && next.theme !== undefined) {
       dispatch('setTheme', next.theme);
     }
@@ -473,7 +451,13 @@ function reconcile(): void {
 
   syncIdentityLoop(state, next, dispatch);
 
-  if (Object.keys(theme.changed).length > 0) {
+  /*
+   * `theme.count`, not `Object.keys(theme.changed).length`: a removal is a
+   * key whose VALUE is `undefined`, and `Object.keys` counts it while a
+   * `JSON.stringify` or an `Object.values(...).filter` would not. Counting
+   * it in `themeDelta` keeps the two from drifting.
+   */
+  if (theme.count > 0) {
     state.active = { ...state.active, theme: next.theme };
     state.themePushed = true;
     dispatch('setTheme', theme.changed);

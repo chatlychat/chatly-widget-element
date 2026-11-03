@@ -208,6 +208,15 @@ export interface ChatlyInitOptions {
   consentCategory?: string;
   apiUrl?: string;
   realtimeUrl?: string;
+  /**
+   * Mint a `contextToken` now, and again shortly before it expires.
+   *
+   * For a long-lived page whose signed context would otherwise lapse
+   * mid-session. Return the JWT your server signed with the channel's
+   * identity-verification secret. If it throws, `context.expired` fires and
+   * the claims lapse — expired signed claims are never kept.
+   */
+  contextTokenProvider?: () => string | Promise<string>;
   visitor?: ChatlyIdentity;
   theme?: ChatlyTheme;
   behavior?: ChatlyBehavior;
@@ -259,6 +268,11 @@ export interface ChatlyInitOptions {
         functional?: 'allow' | 'deny' | 'on-open';
         analytics?: 'allow' | 'deny' | 'on-open';
         marketing?: 'allow' | 'deny' | 'on-open';
+        /** Consent-manifest spelling of `functional`. Chatly's own name wins if both are sent. */
+        preferences?: 'allow' | 'deny' | 'on-open';
+        /** Consent-manifest spelling of `analytics`. Chatly's own name wins if both are sent. */
+        statistics?: 'allow' | 'deny' | 'on-open';
+        // `necessary` is deliberately not accepted: nothing Chatly stores is strictly necessary (ADR 0075).
       };
 
   /**
@@ -325,6 +339,10 @@ export interface ChatlyInitOptions {
  */
 export interface ChatlyEmbedHandlers {
   onReady?: (session: ChatlySession) => void;
+  /** A `contextToken` was refused (`context.invalid`). */
+  onContextInvalid?: (detail: { reason: string }) => void;
+  /** A verified `contextToken` lapsed with no replacement (`context.expired`). */
+  onContextExpired?: (detail: { reason: string }) => void;
   /** `() => void` is still assignable — the detail was added, not required. */
   onOpen?: (detail: ChatlyOpenEvent) => void;
   onClose?: () => void;

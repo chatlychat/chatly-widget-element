@@ -73,7 +73,20 @@ export type ChatlyEventName =
    * wants a toast draws it itself. See `@chatlychat/sdk-js`.
    */
   | 'notice'
-  | 'error';
+  | 'error'
+  /**
+   * A `contextToken` was refused — bad signature, expired on arrival, or a
+   * renewal of one refused. Carries `{ reason }`. `context.verified.*` is
+   * empty, so every audience profile and bot route keyed on a signed claim
+   * is matching on nothing.
+   */
+  | 'context.invalid'
+  /**
+   * A verified `contextToken` reached its `exp` with nothing to replace it:
+   * no `contextTokenProvider` was set, or the one that was threw. Carries
+   * `{ reason }`. Expired claims are not kept.
+   */
+  | 'context.expired';
 
 /** What a `ready` or `identified` event carries. */
 export interface ChatlySession {
@@ -165,19 +178,41 @@ export interface ChatlyAppearanceEvent {
 /**
  * The `error` event. `message` is set for a misuse the widget warned about
  * (a call made before `init`, a handler that is not a function); the other
- * fields are set when `init` was refused or could not reach the API.
+ * fields are set when a request was refused or could not reach the API.
  *
- * `code` is the widget's own grade (`identity_rejected`, `identity_missing_hash`
- * or `init_failed`); `apiCode` is the server's code (`forbidden`, ...) and is
- * null when no response arrived. Only `init` reports today: a failed send or
- * identify is shown in the thread and does not fire this event.
+ * `code` is the widget's own grade and `apiCode` is the server's
+ * (`forbidden`, ...), null when no response arrived. `operation` says which
+ * call failed, and the three are reported independently: a host watching for
+ * "chat is down for everybody" wants `operation: 'init'`, one watching for
+ * "this visitor's sign-in is broken" wants `identity_rejected`, and one that
+ * mirrors the thread wants `send_failed`.
+ *
+ * ── Why `identify` is a separate operation from `init` ────────────────────
+ *
+ * A post-load `identify()` re-runs `POST /v1/widget/init`, because that is
+ * where the server's `userHash` check lives, so the failure arrives on the
+ * same path as a boot failure. It is not the same event for an integrator:
+ * an `init` failure means no visitor on the page can chat, and an `identify`
+ * failure means the widget is working and one claim was refused. The grade in
+ * `code` does not separate them — a refused hash gives
+ * `identity_rejected` either way.
+ *
+ * ── `send_failed`, and why the thread is not enough ───────────────────────
+ *
+ * A failed send has always been shown IN the thread (the row keeps a "not
+ * sent" marker and offers a retry), and that is the right place for the
+ * visitor. It is invisible to the host page, which is the one that knows
+ * whether its own CSP, a proxy or an offline tab is the cause — and a host
+ * mirroring the thread had no way to learn that a message it had already
+ * seen on `message` never landed. `retryable` is what a host should branch
+ * on; the visitor's own retry button is unaffected either way.
  */
 export interface ChatlyErrorEvent {
   message?: string;
-  code?: 'identity_rejected' | 'identity_missing_hash' | 'init_failed';
+  code?: 'identity_rejected' | 'identity_missing_hash' | 'init_failed' | 'send_failed';
   apiCode?: string | null;
   status?: number | null;
-  operation?: 'init';
+  operation?: 'init' | 'identify' | 'send';
   /** Whether asking again could succeed (network, 5xx, 429). */
   retryable?: boolean;
 }

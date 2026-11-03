@@ -1,5 +1,46 @@
 # @chatlychat/widget-element — changelog
 
+## 0.27.0 — 2026-11-03
+
+- **The identity loop accepts an OIDC identity.** It required an
+  `externalId`, and the documented answer for a channel on
+  `identityVerification.mode: 'oidc'` is `{identity: {userToken}}` with none —
+  the `sub` inside the token IS the external id and only the server opens it.
+  So `identityEndpoint` and `identity` warned and changed nothing, and an
+  integrator with a correctly configured channel saw an anonymous widget and
+  no error from anybody, because no request was ever made. `userToken`,
+  `getToken` and `identityToken` now each name a person; `email` alone still
+  does not. (FormFlow, 2026-11-03.)
+- **A re-created provider is no longer a change.** `sameValue` compared
+  functions by reference, so the documented inline form —
+  `getToken: () => atlas.session.getToken(…)`, which is a new function on every
+  React render — made `reconcile` dispatch an `identify` on every commit, each
+  one minting a fresh token. An inline `contextTokenProvider` was worse: it is
+  not in `reconcile`'s ignore list, so it re-initialised the widget on every
+  render, which closes the visitor's panel mid-sentence. Both function-valued
+  options are providers called per request, so they are compared by presence.
+- `logout` is on the controls object. It shipped on `ChatlyApi` and never
+  reached the wrapper, so a consumer got a type error for a call the widget
+  honours.
+- The storage option accepts the consent-manifest category names
+  (`preferences`, `statistics`) beside Chatly's own; `necessary` is ignored.
+
+## 0.26.0 — 2026-10-28
+
+### Added
+
+- **`controls.setCart`** — the element's half of `Chatly('setCart', …)`: the
+  visitor's basket as `items` / `total` / `currency` / `url`, replacing the
+  previous cart on each call. Paired with `trackSale` for the completed
+  purchase.
+
+### Note on these two versions
+
+0.25.0 and 0.26.0 were both in `package.json` with no entry here — 0.25.0 in
+the 2026-10-28 release commit, 0.26.0 with the parity sweep that added
+`setCart`. Recorded together because a consumer reading this file to decide
+whether to upgrade could not see either.
+
 ## 0.24.0 — 2026-10-26
 
 ### Added

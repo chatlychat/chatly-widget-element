@@ -44,7 +44,7 @@
  *
  * **Only an explicit `null` signs the visitor out.** Everything else that is
  * not a usable identity — a provider that threw, a route that answered 500, a
- * body with no `identity` key, an answer with no `externalId` — changes
+ * body with no `identity` key, an answer that names nobody — changes
  * NOTHING and warns.
  *
  * That asymmetry is the whole safety argument. `reset()` is destructive: it
@@ -211,8 +211,9 @@ async function fetchIdentity(endpoint: string): Promise<ChatlyIdentityAnswer> {
  *    the route is misconfigured or something else answered (a login redirect
  *    serving HTML is the common one, and `response.json()` on that throws
  *    before we get here). Not a statement that nobody is signed in.
- *  - **an identity with no `externalId`.** It is the only field contacts are
- *    matched on, so `{email}` alone would attach that email to whichever
+ *  - **an identity that names nobody.** See `namesSomebody` below for the
+ *    four ways one can. `{email}` alone is the case that matters: an email is
+ *    a claim the page typed, so it would attach that address to whichever
  *    contact this browser's session already holds — a different person's, on
  *    a shared device. An anonymous prefill is what the `visitor` option is
  *    for; this loop is the ACCOUNT loop.
@@ -238,15 +239,50 @@ export function normalizeAnswer(answer: unknown): ChatlyIdentity | null | undefi
     );
     return undefined;
   }
-  const externalId = (identity as ChatlyIdentity).externalId;
-  if (typeof externalId !== 'string' || externalId === '') {
+  if (!namesSomebody(identity as ChatlyIdentity)) {
     console.warn(
-      '[Chatly] the identity provider answered an identity with no externalId. It is the only ' +
-        'field contacts are matched on, so nothing was changed — answer null to sign out.',
+      '[Chatly] the identity provider answered an identity that names nobody. It needs an ' +
+        'externalId, or a signed credential whose subject the server resolves — userToken, ' +
+        'getToken or identityToken. Nothing was changed; answer null to sign out.',
     );
     return undefined;
   }
   return identity as ChatlyIdentity;
+}
+
+/**
+ * Does this identity NAME a person?
+ *
+ * `externalId` is one way and used to be the only one. The others are the
+ * three credentials whose SUBJECT the server opens rather than the page
+ * declaring it: `userToken` (a token from the host's identity provider, whose
+ * `sub` IS the external id), `getToken` (a provider that mints one of those
+ * per request) and `identityToken` (IDV v2 — an HS256 JWT the host's SERVER
+ * signed, whose `sub` is the external id too). All three are what the server
+ * already accepts: `widgetInitSchema` in
+ * `apps/api/src/modules/widget/widget.schemas.ts` says it in as many words —
+ * "`userToken` counts: it names somebody, in its `sub`".
+ *
+ * Requiring `externalId` here is what made `identityVerification.mode: 'oidc'`
+ * unreachable through this package, reported by FormFlow on 2026-11-03. The
+ * documented OIDC answer is `{identity: {userToken}}` with NO external id —
+ * the host does not know the `sub` and must not have to — so the loop warned
+ * and changed nothing. The failure is the expensive kind: the channel was
+ * configured correctly and the server never said a word, because no request
+ * was ever made. An integrator saw an anonymous widget and no error.
+ *
+ * `email` alone is still not a name, and the asymmetry is the point. An email
+ * is a claim the page typed; a signed token is a claim somebody's key stands
+ * behind.
+ */
+function namesSomebody(identity: ChatlyIdentity): boolean {
+  const given = (value: unknown): boolean => typeof value === 'string' && value !== '';
+  return (
+    given(identity.externalId) ||
+    given(identity.userToken) ||
+    given(identity.identityToken) ||
+    typeof identity.getToken === 'function'
+  );
 }
 
 /**
@@ -320,7 +356,21 @@ export function startIdentityLoop(
      * it arrives on the same account.
      */
     if (last !== undefined && last !== null && sameIdentity(last, answer)) {
-      if (storedExternalId(publicId) === answer.externalId) {
+      /*
+       * An OIDC answer carries no `externalId` to compare the stored key
+       * against: the `sub` inside the token is the external id and only the
+       * server opens it, so `answer.externalId` is `undefined` while the key
+       * holds the id the server resolved. Comparing the two would never
+       * agree, so this check would stop short-circuiting — an `identify` on
+       * every tab focus, re-minting a token each time, which is the first of
+       * the two things the comment above says must not happen.
+       *
+       * For those the question becomes "is ANYTHING remembered", which keeps
+       * the second thing as well: a `reset()` from anywhere clears the key,
+       * and a cleared key falls through to a fresh `identify`.
+       */
+      const stored = storedExternalId(publicId);
+      if (answer.externalId === undefined ? stored !== null : stored === answer.externalId) {
         return;
       }
     }

@@ -49,11 +49,41 @@ export function sameValue(a: unknown, b: unknown): boolean {
   if (a === undefined || b === undefined || a === null || b === null) {
     return false;
   }
+  /*
+   * Two functions are the SAME request, whatever their identity.
+   *
+   * Every function-valued option that reaches here is a PROVIDER the widget
+   * calls per request, never a value: `visitor.getToken` mints a ~60-second
+   * OIDC identity token and `contextTokenProvider` mints a signed-context
+   * one. Two providers that mint for the same person are interchangeable —
+   * the argument `sameIdentity` in `identity-loop.ts` already makes for
+   * `getToken`, which is why that function compares it by presence. The `on*`
+   * handlers are in `ChatlyEmbedHandlers` and never reach this comparison, so
+   * there is no option here whose function VALUE matters.
+   *
+   * Comparing them by reference is what the documented form actually cost. An
+   * inline `getToken: () => atlas.session.getToken(…)` arrow — the form in
+   * `packages/sdk-js/src/widget-identity.ts`'s own example — is a new function
+   * on every React render, so `reconcile` saw a changed `visitor` on every
+   * commit and dispatched an `identify`, re-minting a token each time. An
+   * inline `contextTokenProvider` was worse: it is NOT in `reconcile`'s ignore
+   * list, so it re-initialised the widget on every render, which destroys and
+   * remounts it and closes the visitor's panel mid-sentence. That is exactly
+   * the hazard `initOptionsFor` strips `identity` for; these two reach the
+   * comparison through `visitor` and through the init options instead.
+   *
+   * PRESENCE still matters: a provider replaced by `undefined` is caught by
+   * the `undefined`/`null` arm above and reads as a change, which it is.
+   */
+  if (typeof a === 'function' && typeof b === 'function') {
+    return true;
+  }
   if (typeof a !== 'object' || typeof b !== 'object') {
     return false;
   }
-  // A DOM node or a function is compared by identity only — recursing into an
-  // Element would walk the host page's entire tree.
+  // A DOM node is compared by identity only — recursing into an Element would
+  // walk the host page's entire tree. (A function never gets this far: the
+  // arm above answers for two of them, and the `typeof` check for one.)
   if (isOpaque(a) || isOpaque(b)) {
     return false;
   }

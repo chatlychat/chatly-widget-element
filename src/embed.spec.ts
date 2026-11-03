@@ -171,37 +171,74 @@ describe('prop changes', () => {
     expect(argsFor('setTheme')[1]).toEqual([{ darkTheme: { background: '#000000' } }]);
   });
 
-  it('re-inits when a theme key is REMOVED, because setTheme cannot unset one', () => {
+  it('sends a REMOVED theme key as an explicit undefined, and still does not re-init', () => {
+    /*
+     * NPOL-2's remaining half. This used to re-init, because `setTheme` was a
+     * plain merge and could not unset a key — and a re-init closes the
+     * visitor's open panel. `setTheme` deletes an `undefined` key now
+     * (`apps/widget/src/index.ts`), so the removal is expressible.
+     *
+     * The assertion is on the KEY being present with an `undefined` value,
+     * not on the object being equal to `{}`: `toEqual` ignores a key whose
+     * value is `undefined`, so `toEqual([{}])` passes against a delta that
+     * drops the removal entirely, which is the bug this test exists for.
+     */
     const handle = startWidget(
       {},
       { ...BASE, theme: { primaryColor: '#111111', borderRadius: 8 } },
     );
     handle.update({ ...BASE, theme: { borderRadius: 8 } });
-    expect(argsFor('init')).toHaveLength(2);
-    expect(argsFor('init')[1]?.[0]).toEqual({ publicId: 'acme-web', theme: { borderRadius: 8 } });
-    expect(argsFor('setTheme')).toHaveLength(0);
+    expect(argsFor('init')).toHaveLength(1);
+    const sent = argsFor('setTheme')[0]?.[0] as Record<string, unknown>;
+    expect(Object.keys(sent)).toEqual(['primaryColor']);
+    expect(sent.primaryColor).toBeUndefined();
+
     // An explicit `undefined` is the same request as an absent key.
     handle.update({ ...BASE, theme: { borderRadius: undefined } });
-    expect(argsFor('init')).toHaveLength(3);
+    expect(argsFor('init')).toHaveLength(1);
+    expect(Object.keys(argsFor('setTheme')[1]?.[0] as Record<string, unknown>)).toEqual([
+      'borderRadius',
+    ]);
   });
 
-  it('re-inits when the whole theme is dropped', () => {
+  it('sends every key as undefined when the whole theme is dropped, without re-initialising', () => {
     const handle = startWidget({}, { ...BASE, theme: { primaryColor: '#111111' } });
     handle.update({ ...BASE });
-    expect(argsFor('init')).toHaveLength(2);
+    expect(argsFor('init')).toHaveLength(1);
+    const sent = argsFor('setTheme')[0]?.[0] as Record<string, unknown>;
+    expect(Object.keys(sent)).toEqual(['primaryColor']);
+    expect(sent.primaryColor).toBeUndefined();
   });
 
   it('re-asserts live-set theme values after a later re-init', () => {
-    // The widget's override layer survives `init` and outranks it, so a
-    // stale value from an earlier setTheme would mask the new init theme.
+    /*
+     * The widget's override layer survives `init` and outranks it, so a stale
+     * value from an earlier setTheme would mask the new init theme.
+     *
+     * The re-init is forced by a changed `identityFallback`, which is one of
+     * the options `initOptionsFor` passes through to the widget. It used to
+     * be forced by DROPPING a theme key, and that stopped re-initialising
+     * when NPOL-2 closed — so the test would have gone on passing while
+     * asserting nothing about a re-init at all.
+     *
+     * `locale` was tried first and does NOT work: `initOptionsFor` strips it
+     * (it is this package's option, handled live by `setLocale` further down
+     * `reconcile`), so the update went through the live path and `init` was
+     * still called once. Worth recording, because "change any option" is the
+     * obvious way to write this test and most options are live now.
+     */
     const handle = startWidget(
       {},
       { ...BASE, theme: { primaryColor: '#111111', borderRadius: 8 } },
     );
     handle.update({ ...BASE, theme: { primaryColor: '#222222', borderRadius: 8 } });
-    handle.update({ ...BASE, theme: { primaryColor: '#333333' } });
+    handle.update({
+      ...BASE,
+      identityFallback: 'anonymous',
+      theme: { primaryColor: '#333333', borderRadius: 8 },
+    });
     expect(argsFor('init')).toHaveLength(2);
-    expect(argsFor('setTheme')[1]).toEqual([{ primaryColor: '#333333' }]);
+    expect(argsFor('setTheme')[1]).toEqual([{ primaryColor: '#333333', borderRadius: 8 }]);
   });
 
   it('identifies instead of re-initialising when the visitor appears', () => {
