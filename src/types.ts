@@ -86,8 +86,12 @@ export interface ChatlyIdentity {
    *
    * Do not pass `userHash` as well — a channel verifies one way or the other
    * and the server refuses the wrong credential for its mode.
+   *
+   * `null` is "signed out" and not an error: an Atlas-shaped
+   * `() => Promise<string | null>` is accepted as written, and a null answer
+   * leaves an anonymous widget with one console warning and no request.
    */
-  getToken?: () => string | Promise<string>;
+  getToken?: () => string | null | Promise<string | null>;
   attributes?: Record<string, unknown>;
 }
 
