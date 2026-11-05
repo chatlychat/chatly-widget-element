@@ -1,5 +1,15 @@
 # @chatlychat/widget-element — changelog
 
+## 0.27.2 — 2026-11-05
+
+- **The four accessible-name copy keys are typed.** `launcherAria`,
+  `unreadAria`, `panelAria` and `loadingAria` on `theme.copy` — the widget has
+  rendered them since the WCAG conformance pass, and the published types did
+  not carry them, so setting one from TypeScript needed a cast. Additive and
+  optional; nothing behaves differently.
+- **An import-order lint error in `embed.ts`.** No behaviour change; it is here
+  because the package did not pass `pnpm run check` without it.
+
 ## 0.27.1 — 2026-11-03
 
 - **`visitor.getToken` accepts a provider that answers `null`.** It was typed

@@ -356,6 +356,10 @@ export interface ChatlyCopy {
   poweredBy?: string;
   closeAria?: string;
   backAria?: string;
+  launcherAria?: string;
+  unreadAria?: string;
+  panelAria?: string;
+  loadingAria?: string;
   unavailableMessage?: string;
   unavailableRetry?: string;
   /**

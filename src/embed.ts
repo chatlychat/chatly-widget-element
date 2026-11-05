@@ -37,10 +37,10 @@ import { armLoaderFetch } from './defer-loader.js';
 import { identifyOrReset, startIdentity, syncIdentityLoop } from './embed-identity.js';
 import { EVENT_HANDLERS, WIDGET_EVENT_NAMES } from './events.js';
 import { withResolvedIdentity, type IdentityLoop } from './identity-loop.js';
+import { initOptionsFor } from './init-options.js';
 import { loaderInjected, resetLoaderInjection } from './inject-loader.js';
 import { warnLateBootOption } from './lazy.js';
 import { drainPending, queueUntilMounted, resetPending } from './pending-calls.js';
-import { initOptionsFor } from './init-options.js';
 import { sameOptions, sameValue } from './same-value.js';
 import { themeDelta } from './theme-delta.js';
 
