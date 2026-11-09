@@ -209,8 +209,15 @@ function lazyRelevantOptions(shim: LoaderShim): LazyRelevantOptions {
  * refused. So lazy mode makes the same decision the widget would, which also
  * means a hidden page now costs ZERO bytes instead of 44KB.
  *
- * Mirrored from `matchGlob` in `apps/widget/src/index.ts`, character for
- * character, for the reason given on `placeholderTheme`.
+ * Mirrored from `matchGlob` in `apps/widget/src/hide-on-urls.ts`, character
+ * for character, for the reason given on `placeholderTheme`. (It lived in
+ * `index.ts` until the widget began re-reading the field on SPA navigation
+ * and two modules needed it.)
+ *
+ * This copy is the INIT-TIME reading only, which is the one lazy mode needs:
+ * "would the widget mount on this path". The widget's post-mount reading —
+ * hide the launcher, keep the session — has no analogue here, because there
+ * is nothing mounted yet to keep.
  */
 function hiddenOnThisUrl(globs: readonly string[], pathname: string): boolean {
   return globs.some((pattern) => {

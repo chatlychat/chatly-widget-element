@@ -1,5 +1,17 @@
 # @chatlychat/widget-element — changelog
 
+## 0.27.3 — 2026-11-09
+
+- **Docs only.** `hiddenOnThisUrl` is a character-for-character mirror of the
+  widget's own glob matcher, and the comment naming its source pointed at
+  `apps/widget/src/index.ts`, where the function no longer lives — it moved to
+  `hide-on-urls.ts` when the widget began re-reading the field on SPA
+  navigation. The comment now also says which of the widget's two readings
+  this copy is: the INIT-TIME one ("would the widget mount on this path"),
+  which is the only one lazy mode can have an opinion about, since nothing is
+  mounted yet to keep. No behaviour change — lazy mode still costs a hidden
+  page zero bytes instead of 44KB.
+
 ## 0.27.2 — 2026-11-05
 
 - **The four accessible-name copy keys are typed.** `launcherAria`,
