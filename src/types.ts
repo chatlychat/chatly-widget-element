@@ -341,47 +341,58 @@ export interface ChatlyInitOptions {
  * in both directions: a new event with no handler here is a type error there,
  * and so is a handler here that no event reaches.
  */
+/**
+ * ── Every optional member here also accepts an explicit `undefined` ──────
+ *
+ * This repo compiles with `exactOptionalPropertyTypes: false`, so the
+ * difference is invisible in-tree. A consumer that sets it — two integrators
+ * do — cannot forward its own optional prop into a `?: T` property, and the
+ * workaround is `{...(x ? { x } : {})}` at every call site. Published types
+ * are compiled by somebody else's tsconfig, so they are written for the
+ * strictest one; it costs a non-strict consumer nothing, since without the
+ * flag the two forms are identical.
+ */
 export interface ChatlyEmbedHandlers {
-  onReady?: (session: ChatlySession) => void;
+  onReady?: ((session: ChatlySession) => void) | undefined;
   /** A `contextToken` was refused (`context.invalid`). */
-  onContextInvalid?: (detail: { reason: string }) => void;
+  onContextInvalid?: ((detail: { reason: string }) => void) | undefined;
   /** A verified `contextToken` lapsed with no replacement (`context.expired`). */
-  onContextExpired?: (detail: { reason: string }) => void;
+  onContextExpired?: ((detail: { reason: string }) => void) | undefined;
   /** `() => void` is still assignable — the detail was added, not required. */
-  onOpen?: (detail: ChatlyOpenEvent) => void;
-  onClose?: () => void;
-  onMessage?: (message: ChatlyMessageEvent) => void;
+  onOpen?: ((detail: ChatlyOpenEvent) => void) | undefined;
+  onClose?: (() => void) | undefined;
+  onMessage?: ((message: ChatlyMessageEvent) => void) | undefined;
   /** The server stored a message the visitor sent (`message.ack`). */
-  onMessageAck?: (detail: ChatlyMessageAckEvent) => void;
+  onMessageAck?: ((detail: ChatlyMessageAckEvent) => void) | undefined;
   /**
    * An agent or bot message arrived while its thread was on screen
    * (`message.received`). `onMessage` does NOT fire for these — it has only
    * ever meant "the visitor sent something" — and a reply that lands while
    * the panel is closed is reported by `onUnread`.
    */
-  onMessageReceived?: (detail: ChatlyMessageReceivedEvent) => void;
+  onMessageReceived?: ((detail: ChatlyMessageReceivedEvent) => void) | undefined;
   /** The unread total changed, and once as soon as it is known (`unread`). */
-  onUnread?: (detail: ChatlyUnreadEvent) => void;
-  onAppearance?: (detail: ChatlyAppearanceEvent) => void;
-  onConversation?: (detail: unknown) => void;
+  onUnread?: ((detail: ChatlyUnreadEvent) => void) | undefined;
+  onAppearance?: ((detail: ChatlyAppearanceEvent) => void) | undefined;
+  onConversation?: ((detail: unknown) => void) | undefined;
   /**
    * The thread on screen changed — see `'conversation.changed'`. Use this to
    * re-sync a mirrored thread on a move; `onConversation` also fires once at
    * startup, which this one deliberately does not.
    */
-  onConversationChanged?: (detail: unknown) => void;
-  onIdentified?: (session: ChatlySession) => void;
-  onReset?: (detail: unknown) => void;
+  onConversationChanged?: ((detail: unknown) => void) | undefined;
+  onIdentified?: ((session: ChatlySession) => void) | undefined;
+  onReset?: ((detail: unknown) => void) | undefined;
   /** A visitor pressed a `host_event` action on a rich block. */
-  onAction?: (detail: unknown) => void;
+  onAction?: ((detail: unknown) => void) | undefined;
   /**
    * A visitor pressed a `navigate` action: `{ path, label, conversationId,
    * messageId, actionId }`. Pass `path` to your router. Providing this handler
    * is what stops the widget navigating by itself.
    */
-  onNavigate?: (detail: unknown) => void;
+  onNavigate?: ((detail: unknown) => void) | undefined;
   /** A bot's ephemeral notice: `{ conversationId, replyTo, body }`. Not stored; gone if you miss it. */
-  onNotice?: (detail: unknown) => void;
+  onNotice?: ((detail: unknown) => void) | undefined;
   /**
    * The widget could not do something it was asked to do.
    *
@@ -389,7 +400,7 @@ export interface ChatlyEmbedHandlers {
    * source, and it fires for a refused origin, a dead network and a 5xx —
    * none of which a host page can do anything about by crashing.
    */
-  onError?: (detail: ChatlyErrorEvent) => void;
+  onError?: ((detail: ChatlyErrorEvent) => void) | undefined;
   /**
    * Which per-audience profile matched. `{ profile, matched }`.
    *
@@ -398,7 +409,7 @@ export interface ChatlyEmbedHandlers {
    * wants the shape imports it from there rather than having two copies of it
    * drift.
    */
-  onProfile?: (detail: unknown) => void;
+  onProfile?: ((detail: unknown) => void) | undefined;
 }
 
 /**

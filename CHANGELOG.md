@@ -1,5 +1,24 @@
 # @chatlychat/widget-element — changelog
 
+## 0.28.0 — 2026-11-19
+
+- **Every optional member of `ChatlyEmbedHandlers` now carries `| undefined`**
+  (snapnedit CHT-B6). Under `exactOptionalPropertyTypes: true`, `prop?: T` and
+  `prop?: T | undefined` are different types: the first refuses `undefined` as
+  a value, so a wrapper forwarding its OWN optional prop was a type error and
+  two integrators worked around it with `{...(x ? { x } : {})}` four times
+  between them.
+
+  Nothing in the Chatly monorepo could see this — `packages/config` sets the
+  flag `false` — and a published `.d.ts` is compiled by the CONSUMER's
+  tsconfig, so these types have to be written for the strictest one. Fixed
+  here rather than in `widget-react`, because that package's props
+  `extends Partial<ChatlyEmbedOptions>` and the same problem applied to all
+  forty-odd embed options, not just the handful written out by hand.
+
+  Non-breaking: every previously valid assignment still typechecks. A new gate
+  compiles a host component with the flag ON against the emitted `.d.ts`.
+
 ## 0.27.3 — 2026-11-09
 
 - **Docs only.** `hiddenOnThisUrl` is a character-for-character mirror of the

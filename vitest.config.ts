@@ -4,7 +4,6 @@ const vitestExecution = { pool: 'threads' as const };
 
 export default defineConfig({
   test: {
-    // Worker THREADS, not forked processes. See @livechat/config/vitest.
     ...vitestExecution,
     // jsdom, deliberately: happy-dom does not implement
     // HTMLScriptElement.nonce, and the CSP-nonce specs here read it. A faster
