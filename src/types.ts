@@ -358,6 +358,12 @@ export interface ChatlyEmbedHandlers {
   onContextInvalid?: ((detail: { reason: string }) => void) | undefined;
   /** A verified `contextToken` lapsed with no replacement (`context.expired`). */
   onContextExpired?: ((detail: { reason: string }) => void) | undefined;
+  /**
+   * The visitor opened a thread belonging to another audience. Send them to
+   * the view it lives in — the widget will not open it, and nothing else
+   * happens if you do not handle this.
+   */
+  onConversationOutOfScope?: ((detail: { conversationId: string }) => void) | undefined;
   /** `() => void` is still assignable — the detail was added, not required. */
   onOpen?: ((detail: ChatlyOpenEvent) => void) | undefined;
   onClose?: (() => void) | undefined;

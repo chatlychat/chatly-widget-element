@@ -1,5 +1,34 @@
 # @chatlychat/widget-element — changelog
 
+## 0.29.0 — 2026-11-25
+
+- **An identity route may answer `{ "token": null }`, and a `tokenUrl` becomes
+  a re-minting provider** (LinkHub CHT-L2). `identity-route.ts` is new.
+  `visitor: { tokenUrl }` fetches the token from your own server instead of
+  taking one you embedded, and it re-fetches when the token expires rather
+  than letting the session go anonymous mid-conversation — which is what an
+  embedded token does, silently, when the visitor keeps the tab open.
+
+  `{ "token": null }` and a `401` both mean **anonymous**, deliberately and
+  identically: a signed-out visitor is an ordinary state, not an error, and a
+  route that has to distinguish them for us is a route that will get it wrong.
+  Any stored identity is cleared on either.
+
+  A redirect is NOT followed. A route that sends a signed-out visitor to a
+  sign-in page returns an HTML form, which would parse as a malformed token
+  and read as the route being broken.
+
+- **`conversation.out_of_scope`** is emitted when a visitor asks for a
+  conversation belonging to a different audience than the one they are in
+  (`behavior.historyScope: 'audience'`). The detail is `{ conversationId }`
+  and deliberately NOT the audience it belongs to — that would name a cohort
+  this visitor is not in, to a page that already knows which view it renders.
+
+  Reached by a deep link, a push notification, a bookmark or a second tab,
+  never by the history list, which filters these out. The widget does not open
+  the thread, and nothing else happens unless you subscribe: the remedy is
+  navigation, and only your page can navigate.
+
 ## 0.28.0 — 2026-11-19
 
 - **Every optional member of `ChatlyEmbedHandlers` now carries `| undefined`**

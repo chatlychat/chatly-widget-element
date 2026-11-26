@@ -214,6 +214,7 @@ export const ELEMENT_EVENTS = [
   'profile',
   'context-invalid',
   'context-expired',
+  'conversation-out-of-scope',
 ] as const satisfies readonly ChatlyDomEventSuffix[];
 
 /** `chatly-ready`, `chatly-message`, … — the DOM event names, without prefix. */

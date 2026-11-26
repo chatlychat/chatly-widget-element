@@ -63,6 +63,7 @@ export const EVENT_HANDLERS = {
   profile: 'onProfile',
   'context.invalid': 'onContextInvalid',
   'context.expired': 'onContextExpired',
+  'conversation.out_of_scope': 'onConversationOutOfScope',
 } as const satisfies Record<ChatlyEventName, keyof ChatlyEmbedHandlers>;
 
 /** The handler names, as a union — `'onReady' | 'onOpen' | …`. */
@@ -93,11 +94,19 @@ export const WIDGET_EVENT_NAMES = Object.keys(EVENT_HANDLERS) as readonly Chatly
 /**
  * A widget event name with its dots turned into dashes, at the type level.
  *
- * `message.ack` → `message-ack`. See `domSuffix` for why.
+ * `message.ack` → `message-ack`, `a.b_c` → `a-b-c`. See `domSuffix` for why.
+ *
+ * Underscores as well as dots, because this package's stated spelling for
+ * anything crossing into HTML is kebab and `chatly-conversation-out_of_scope`
+ * is half of each. No event name had an underscore until
+ * `conversation.out_of_scope`, so this widens the type without changing any
+ * existing suffix — `check-widget-wrapper-parity.mjs` is what proves that.
  */
 export type Dashed<S extends string> = S extends `${infer Head}.${infer Tail}`
   ? `${Head}-${Dashed<Tail>}`
-  : S;
+  : S extends `${infer Head}_${infer Tail}`
+    ? `${Head}-${Dashed<Tail>}`
+    : S;
 
 /** The DOM event suffixes — what `chatly-` is prefixed to. */
 export type ChatlyDomEventSuffix = Dashed<ChatlyEventName>;
@@ -117,5 +126,5 @@ export type ChatlyDomEventSuffix = Dashed<ChatlyEventName>;
  */
 export function domSuffix(name: ChatlyEventName): ChatlyDomEventSuffix {
   // The replacement is exactly what `Dashed` does to the type.
-  return name.replace(/\./g, '-') as ChatlyDomEventSuffix;
+  return name.replace(/[._]/g, '-') as ChatlyDomEventSuffix;
 }

@@ -86,7 +86,14 @@ export type ChatlyEventName =
    * no `contextTokenProvider` was set, or the one that was threw. Carries
    * `{ reason }`. Expired claims are not kept.
    */
-  | 'context.expired';
+  | 'context.expired'
+  /**
+   * The visitor named a conversation from a different audience than the view
+   * they are in — `behavior.historyScope: 'audience'` on the channel. Carries
+   * `{ conversationId }`. The widget does not open the thread; the remedy is
+   * navigation, which only the host page can do.
+   */
+  | 'conversation.out_of_scope';
 
 /** What a `ready` or `identified` event carries. */
 export interface ChatlySession {

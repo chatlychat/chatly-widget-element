@@ -56,6 +56,8 @@
  * apart deliberately. `resolve()` below returns `undefined` for the first and
  * `null` for the second, and nothing collapses the two.
  */
+import { fetchIdentity } from './identity-route.js';
+
 import type { ChatlyEmbedOptions, ChatlyIdentity, ChatlyInitOptions } from './types.js';
 
 /**
@@ -173,36 +175,6 @@ export function identityProviderFor(options: ChatlyEmbedOptions): ChatlyIdentity
 }
 
 /**
- * The `identityEndpoint` provider.
- *
- * `cache: 'no-store'` is the whole reason this is not a bare `fetch`: an
- * identity response that a browser, a service worker or a CDN is allowed to
- * reuse is one visitor's account served to the next one on a shared device.
- * The server helper (`chatlyIdentityHandler` in `@chatlychat/sdk-node`) sends
- * `Cache-Control: private, no-store` for the same reason — belt and braces,
- * because only one of the two is under our control on any given deployment.
- *
- * A non-2xx REJECTS rather than returning null. That distinction is THE ONE
- * RULE: a 500 from the host's identity route must not sign every visitor out.
- *
- * `credentials` is left at fetch's default (`same-origin`), which is what a
- * same-origin route needs and what the documented form is. A cross-origin
- * identity route needs `credentials: 'include'` and a CORS policy to match, so
- * it has to use the callback form — where the host writes the `fetch` and owns
- * those decisions.
- */
-async function fetchIdentity(endpoint: string): Promise<ChatlyIdentityAnswer> {
-  const response = await fetch(endpoint, {
-    cache: 'no-store',
-    headers: { accept: 'application/json' },
-  });
-  if (!response.ok) {
-    throw new Error(`[Chatly] identityEndpoint ${endpoint} answered ${String(response.status)}`);
-  }
-  return (await response.json()) as ChatlyIdentityAnswer;
-}
-
-/**
  * One answer, normalised — or `undefined` for "no answer, change nothing".
  *
  * The three refusals, and why each is `undefined` rather than `null`:
@@ -228,6 +200,39 @@ export function normalizeAnswer(answer: unknown): ChatlyIdentity | null | undefi
     return undefined;
   }
   const envelope = answer as Record<string, unknown>;
+  /*
+   * ── A bare `{token}` is the third accepted shape (CHT-L2) ─────────────
+   *
+   * LinkHub's route — shared with Cookie Munch and Forumulate — answers
+   * `{token: "<60s identity token>"}`, because that is the shape Atlas's own
+   * `POST /v1/sessions/{id}/integration_tokens/chatly` hands their server.
+   * Requiring them to re-wrap it as `{identity: {userToken: token}}` buys
+   * nothing: there is exactly one thing a token can mean here.
+   *
+   * `{token: null}` is signed out, which is what their route answers when the
+   * session cookie is absent — so a signed-out visitor starts anonymous
+   * rather than keeping whoever was identified last. It falls through to the
+   * `identity === null` branch below.
+   *
+   * It cannot be confused with the other two shapes: `ChatlyIdentity` has no
+   * `token` member and the envelope's key is `identity`, so a body carrying
+   * `token` and nothing else is unambiguous. A body with BOTH is the envelope,
+   * because that is the more specific contract.
+   */
+  if (!('identity' in envelope) && 'token' in envelope) {
+    const token = envelope['token'];
+    if (token === null) {
+      return null;
+    }
+    if (typeof token !== 'string' || token === '') {
+      console.warn(
+        '[Chatly] the identity route answered {token: …} with something that is not a ' +
+          'non-empty string. Nothing changed; answer {"token": null} to sign out.',
+      );
+      return undefined;
+    }
+    return { userToken: token };
+  }
   const identity = 'identity' in envelope ? envelope['identity'] : answer;
   if (identity === null) {
     return null;
