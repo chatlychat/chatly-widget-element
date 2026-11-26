@@ -1,11 +1,26 @@
 # @chatlychat/widget-element — changelog
 
+## 0.29.1 — 2026-11-25
+
+- **Changelog only, and it is published, which is why it needed a release.**
+  0.29.0's entry implied `visitor: { tokenUrl }` was the option. It is not —
+  there is no `tokenUrl` in this package or any other Chatly one. The option
+  is `identityEndpoint` (`identity-endpoint` as an element attribute), which
+  already accepted `{ identity: {…} | null }` and now also accepts
+  `{ token: "<jwt>" }`.
+
+  `CHANGELOG.md` is inside the tarball, so the wrong name was installed
+  alongside the code — and this entry is the first thing somebody reads to
+  learn how to use what 0.29.0 added. No source change: `dist/` is identical
+  to 0.29.0's.
+
 ## 0.29.0 — 2026-11-25
 
-- **An identity route may answer `{ "token": null }`, and a `tokenUrl` becomes
-  a re-minting provider** (LinkHub CHT-L2). `identity-route.ts` is new.
-  `visitor: { tokenUrl }` fetches the token from your own server instead of
-  taking one you embedded, and it re-fetches when the token expires rather
+- **An identity route may answer `{ "token": … }`, and an `identityEndpoint`
+  becomes a re-minting provider** (LinkHub CHT-L2). `identity-route.ts` is new.
+  `identityEndpoint` already took `{ identity: {…} | null }`; it now also
+  accepts `{ token: "<jwt>" }`, fetches the token from your own server instead
+  of taking one you embedded, and re-fetches when it expires rather
   than letting the session go anonymous mid-conversation — which is what an
   embedded token does, silently, when the visitor keeps the tab open.
 
